@@ -2,7 +2,7 @@
 
 ## Why
 
-FinanceAgent's AgentCore Gateway, Claude Code/Codex (through the Gateway) and colleagues testing directly all need one small, safe set of tools to reach market data, experiments and plans. Those tools must never become a second source of truth or a back door around platform and model controls. FinanceLambdasTool is third in the integration order fixed by FinancialPlanning change `establish-cross-repo-contracts` (platform, then model service, then tool wrappers, then agent/Gateway). It has to release fixture-backed tools before any model compute exists so that FinanceAgent can register Gateway targets and run phase 1 end-to-end checks.
+FinanceAgent's AgentCore Gateway, Claude Code/Codex (through the Gateway) and the project owner testing directly all need one small, safe set of tools to reach market data, experiments and plans. Those tools must never become a second source of truth or a back door around platform and model controls. FinanceLambdasTool is third in the integration order fixed by FinancialPlanning change `establish-cross-repo-contracts` (platform, then model service, then tool wrappers, then agent/Gateway). It has to release fixture-backed tools before any model compute exists so that FinanceAgent can register Gateway targets and run phase 1 end-to-end checks.
 
 ## What Changes
 
@@ -20,7 +20,7 @@ FinanceAgent's AgentCore Gateway, Claude Code/Codex (through the Gateway) and co
 - Enforce per-call tool budget limits by budget category, derived from the USD 50 total AWS budget and its default allocation (each limit at most a fifth of its category: `cpu_research` USD 1, `gpu` USD 5, all other categories 0). FinanceModel's category checks and the USD 50 AWS Budgets deny stay authoritative.
 - Wire each environment strictly from its own configuration. Beta, gamma and prod share one AWS account in us-east-2, isolated by naming, environment tags, IAM permission boundaries and separate per-environment resources. Gamma Lambdas resolve and call only gamma platform and gamma FinanceModel references. Tools whose producer release is absent in an environment return `DEPENDENCY_UNAVAILABLE`.
 - Publish, per environment, each Lambda reference, a tool catalog (tool → input/output schema `$id`, contract version, release ID) and the release manifest under `/finplan/<env>/financelambdastool/...`. FinanceAgent uses them for Gateway registration.
-- Allow direct Lambda invocation by named per-environment test principals before Gateway exists. An in-process mock job backend and the contract-package fixtures make local tests credential-free.
+- Allow direct Lambda invocation before Gateway exists by exactly one direct-test principal per environment, the project owner, referenced through SSM by name only and never by ARN (RESOLVED 2026-10-07, LT-OQ-5). An in-process mock job backend and the contract-package fixtures make local tests credential-free.
 - **Phase 1 (this change's first deliverable):** tools backed by fixtures and synthetic portfolios. `submit_experiment` runs against the in-process mock backend in tests and against FinanceModel's CPU fixture stub job in deployed environments. No GPU compute, no live provider, no live trading.
 - **Later phases:** real-provider ingestion (the platform's `yfinance` adapter in phase 2) and real experiment types are enabled by configuration and contract minors, with no tool redesign. No provider API key or secret is needed by the platform's provider or by any tool. Retrieved market data is never committed to this public repo; tests use the mock provider and synthetic fixtures only.
 - **Out of scope:** any trade execution or execution-recording tool, live trading, Coinbase, AgentCore payments, wallet spending, approving paid jobs, and automated rewriting of risk preferences.
@@ -34,7 +34,7 @@ FinanceAgent's AgentCore Gateway, Claude Code/Codex (through the Gateway) and co
 - `market-data-tools`: `refresh_market_data` and `query_market_data` over the platform ingestion and snapshot APIs.
 - `experiment-tools`: `submit_experiment`, `get_job_status` and `get_experiment_result` over the FinanceModel job interface, including budget pre-checks, snapshot/configuration compatibility, async semantics and outcome reporting.
 - `plan-tools`: read, list, override-as-child-version, validate and publish plan operations over the platform plan API, with no trade execution.
-- `tool-environment-wiring`: per-environment resolution of producer references, dependency gating, invocation permissions (Gateway and direct test principals) and isolation.
+- `tool-environment-wiring`: per-environment resolution of producer references, dependency gating, invocation permissions (Gateway principal and the single project-owner direct-test principal) and isolation.
 - `tool-release-publication`: Lambda references, tool catalog, release manifest and pipeline stages used for Gateway registration and promotion.
 
 ### Modified Capabilities

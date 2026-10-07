@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines how each environment's tool Lambdas resolve their producers, who may invoke them, and how isolation is kept. Gamma tools reach only gamma platform and model services, colleagues can invoke Lambdas directly before the Gateway exists, and local tests run without credentials.
+Defines how each environment's tool Lambdas resolve their producers, who may invoke them, and how isolation is kept. Gamma tools reach only gamma platform and model services, the project owner can invoke Lambdas directly before the Gateway exists, and local tests run without credentials.
 
 ## ADDED Requirements
 
@@ -29,7 +29,7 @@ Beta, gamma and prod share one AWS account in us-east-2. Tool Lambda roles SHALL
 - **THEN** the build-stage policy check fails
 
 ### Requirement: Explicit invoke permissions
-Each tool Lambda SHALL grant invoke permission only to principals named in its environment's configuration: the FinanceAgent Gateway principal for that environment, once published, and the configured direct-test principals. Wildcard or cross-environment grants MUST NOT exist.
+Each tool Lambda SHALL grant invoke permission only to the FinanceAgent Gateway principal for that environment (once published), the single configured direct-test principal, and this repository's own pipeline test and smoke roles. Wildcard or cross-environment grants MUST NOT exist.
 
 #### Scenario: Gateway not yet published
 - **WHEN** FinanceLambdasTool deploys to beta before FinanceAgent has published a beta Gateway principal
@@ -39,16 +39,35 @@ Each tool Lambda SHALL grant invoke permission only to principals named in its e
 - **WHEN** the gamma Gateway principal invokes a prod tool Lambda
 - **THEN** the invocation is denied
 
+### Requirement: Single direct-test principal per environment
+Each environment SHALL have exactly one direct-test principal, the project owner, identified by IAM principal name in `/finplan/<env>/financelambdastool/config/direct-test-principal-name`. The parameter MUST NOT hold an ARN, a wildcard, an account ID, the account root or more than one principal, and no principal name, ARN or account ID MUST appear in repository files. If the parameter is absent, no direct-test grant SHALL be created.
+
+#### Scenario: ARN supplied instead of a name
+- **WHEN** the beta parameter holds a value starting with `arn:`
+- **THEN** the deploy fails validation and no invoke grant is changed
+
+#### Scenario: Parameter absent
+- **WHEN** the gamma parameter does not exist at deploy time
+- **THEN** the Lambdas deploy with no direct-test grant, and only the pipeline roles and the Gateway principal (if published) can invoke them
+
+#### Scenario: Principal name committed
+- **WHEN** a commit adds a principal name, ARN or account ID for the direct-test principal to a repository file
+- **THEN** the build-stage leak scan fails the build
+
 ### Requirement: Direct invocation before Gateway
-Colleagues SHALL be able to invoke each tool Lambda directly in beta and gamma with contract fixtures, using a configured direct-test principal. In prod, direct invocation MUST be limited to the pipeline smoke-test principal.
+The project owner SHALL be able to invoke each tool Lambda directly in beta and gamma with contract fixtures, using that environment's direct-test principal. In prod, the direct-test principal MUST be granted only the read-only tools, and the pipeline smoke role MUST perform only read-only calls.
 
 #### Scenario: Direct beta invocation
-- **WHEN** a colleague with the beta direct-test role invokes `get_plan_version` with a fixture `plan_version_id`
+- **WHEN** the project owner's beta direct-test principal invokes `get_plan_version` with a fixture `plan_version_id`
 - **THEN** the response validates against the pinned output schema without the Gateway
 
-#### Scenario: Direct prod invocation by colleague
-- **WHEN** a non-smoke principal invokes a prod tool Lambda directly
+#### Scenario: Direct prod invocation by another principal
+- **WHEN** a principal other than the prod direct-test principal, the prod pipeline smoke role or the prod Gateway principal invokes a prod tool Lambda directly
 - **THEN** the invocation is denied
+
+#### Scenario: Direct prod write attempt
+- **WHEN** the prod direct-test principal invokes `publish_plan_version` directly
+- **THEN** the invocation is denied, because the prod direct-test grant covers read-only tools only
 
 ### Requirement: Credential-free local execution
 Each tool handler SHALL run locally against an in-process mock platform and mock job backend loaded from contract fixtures, needing no AWS credentials or network. The mock backends MUST be excluded from deployable artifacts.

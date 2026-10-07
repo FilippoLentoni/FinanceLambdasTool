@@ -40,7 +40,7 @@ Every identifier parameter SHALL be checked against the contract prefix and form
 - **THEN** it is rejected with `VALIDATION_FAILED`
 
 ### Requirement: Trusted invocation source and caller identity
-Each tool SHALL accept invocations only from principals granted invoke permission in that environment. It MUST derive the caller identity from the invocation source (the Gateway-supplied identity or the configured direct-test principal class), never from a request-body field alone.
+Each tool SHALL accept invocations only from principals granted invoke permission in that environment. It MUST derive the caller identity from the invocation source (the Gateway-supplied identity or the direct-test principal class of the environment's single configured direct-test principal), never from a request-body field alone.
 
 #### Scenario: Asserted identity in body ignored
 - **WHEN** a direct-test invocation includes `caller: "admin"` in the request body
