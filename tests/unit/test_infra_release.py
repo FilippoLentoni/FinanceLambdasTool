@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import boto3
 from moto import mock_aws
 
 from finplan_tools.core.registry import CATALOG, ROLE_CLASSES
@@ -339,3 +340,23 @@ def test_stage_suite_fails_on_zero_executed_tests(tests, skipped, rc, expected):
 
     assert tests_action("gamma", run=run, environ={"PATH": "/usr/bin"}, release_id=RID, out=lambda _m: None) == expected
     assert seen["FINPLAN_TARGET_ENV"] == "gamma" and seen["FINPLAN_SUITE"] == "gamma" and "AWS_ACCESS_KEY_ID" not in seen
+
+
+def test_catalog_goes_to_the_store_and_ssm_holds_a_small_pointer(ssm):
+    """Regression (first beta deploy): the full catalog exceeded the 8 KB SSM limit."""
+    import hashlib
+
+    from moto import mock_aws
+
+    with mock_aws():
+        s3 = boto3.client("s3", region_name=REGION)
+        s3.create_bucket(Bucket="example-bucket", CreateBucketConfiguration={"LocationConstraint": REGION})
+        release.publish_release(info(), "gamma", ssm=ssm, cfn=FakeCfn("gamma"), s3=s3, store_bucket="example-bucket", descriptions=DESCRIPTIONS)
+        raw = _value(ssm, "/finplan/gamma/financelambdastool/contract/tool-catalog")
+        assert len(raw) < 4096
+        pointer = json.loads(raw)
+        assert pointer["kind"] == "tool-catalog-pointer" and pointer["release_id"] == RID
+        body = s3.get_object(Bucket="example-bucket", Key=release.catalog_object_key(RID, "gamma"))["Body"].read()
+        assert hashlib.sha256(body).hexdigest() == pointer["sha256"]
+        catalog = json.loads(body)
+        assert sorted(t["name"] for t in catalog["tools"]) == pointer["tools"] == sorted(CATALOG)

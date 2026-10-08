@@ -36,8 +36,18 @@ def test_references_catalog_and_manifest_are_published():
     ssm = ssm_client()
     for tool in CATALOG:
         assert tool_ref(tool).endswith(f":{n.TOOL_ALIAS}")
-    catalog = json.loads(ssm.get_parameter(Name=f"/finplan/{TARGET_ENV}/financelambdastool/contract/tool-catalog")["Parameter"]["Value"])
+    pointer = json.loads(ssm.get_parameter(Name=f"/finplan/{TARGET_ENV}/financelambdastool/contract/tool-catalog")["Parameter"]["Value"])
+    assert pointer["kind"] == "tool-catalog-pointer" and pointer["environment"] == TARGET_ENV
+    import hashlib
+
+    from finplan_tools.core.aws_clients import s3_client
+
+    bucket, _, key = pointer["s3_uri"].removeprefix("s3://").partition("/")
+    body = s3_client().get_object(Bucket=bucket, Key=key)["Body"].read()
+    assert hashlib.sha256(body).hexdigest() == pointer["sha256"]
+    catalog = json.loads(body)
     assert validate_document(catalog, "tool-catalog").valid and catalog["environment"] == TARGET_ENV
+    assert sorted(t["name"] for t in catalog["tools"]) == pointer["tools"]
     manifest = json.loads(ssm.get_parameter(Name=f"/finplan/{TARGET_ENV}/financelambdastool/release/manifest")["Parameter"]["Value"])
     assert validate_document(manifest, "release-manifest").valid
     assert manifest["release_id"] == catalog["release_id"]

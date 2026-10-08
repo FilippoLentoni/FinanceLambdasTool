@@ -2,47 +2,28 @@
 
 ## Why
 
-The daily loop (decisions 18–22, 2026-10-08) produces recommendations that wait for the user's explicit approval. Experiments run only when the user asks, and the production strategy is the user's choice. The agent and direct MCP clients need tools for each of these actions, and the tools must be validated server-side so that an LLM or a malformed call cannot publish, select a strategy or spend money without the user's confirmed intent. The existing tools (`add-mcp-tool-adapters`) cover generic plans and experiments but have no review, strategy or benchmark-report operations.
+Choosing the production strategy that the daily recommendation job runs is a user action (decisions 20 and 22, 2026-10-08). The agent and direct MCP clients need one validated tool to read or change it. Approval is already covered by the existing `publish_plan_version`. Experiments and results are already covered by `submit_experiment`, `get_job_status` and `get_experiment_result` (`add-mcp-tool-adapters`). Neither is re-specified here.
 
 ## What Changes
 
-- **Recommendation review tools:**
-  - `list_pending_recommendations` (reader): pending model-run versions for the research plan, with the currently published version, lineage and `bias_disclosures`.
-  - `approve_recommendation` (plan-writer): calls the platform publish route with the contract `approval` block. It requires `confirmed_by_user: true`, the expected checksum and the publication `expected_revision`.
-  - `reject_recommendation` (plan-writer): calls the platform review route with a reason.
-- **Strategy tools:**
-  - `get_production_strategy` (reader).
-  - `set_production_strategy` and `clear_production_strategy` (plan-writer). They call the FinanceModel selection operations and require `confirmed_by_user: true`.
-  - Registry validation is FinanceModel's; tool errors pass through.
-- **Benchmark tools:**
-  - `run_benchmark` (submitter): submits a FinanceModel `benchmark` job over the universe on the latest approved snapshot, `dry_run` first by default.
-  - `list_benchmark_reports` and `get_benchmark_report` (reader): by `report_id` or `latest`. They return a compact summary, the bias disclosures and a trusted reference.
-- **Server-side validation on every new tool:**
-  - pinned contracts 1.1.0 schemas;
-  - Gateway-supplied caller identity and Cognito group:
-    - `plan_publisher` for approve, reject and strategy changes;
-    - `researcher` for `run_benchmark`;
-    - any authenticated group for reads;
-  - same-environment wiring, identifier formats and derived idempotency keys;
-  - per-call `cpu_research` limit (USD 1).
-- **Never trades.** No new tool records executions or accepts `live` mode, and approval only publishes. Tool roles stay denied execution routes, FinanceModel `approve_run`, and direct SSM writes.
-- **Out of scope:** scheduling anything, approving paid compute jobs, accepting staged outputs, and editing risk preferences.
+- Add one tool, `production_strategy`, with `action`:
+  - `get` (any authenticated caller) returns FinanceModel's current selection or `none`;
+  - `set` (`strategy_id`, optional `model_version`) and `clear` require a Gateway-supplied caller in `plan_publisher`, `confirmed_by_user: true` and an `idempotency_key`.
+- The tool calls only FinanceModel's production-strategy operations and passes registry validation errors through unchanged. It never writes SSM, never submits jobs and never trades.
+- It is validated server-side through the existing request pipeline (contracts 1.1.0 schema, identity, environment, derived idempotency key), and is listed in the tool catalog.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `recommendation-review-tools`: list, approve and reject pending model-run recommendations through the platform API, with explicit user confirmation and group checks.
-- `strategy-selection-tools`: read, set and clear the per-environment production strategy through FinanceModel, with confirmation and pass-through of registry validation.
-- `benchmark-tools`: on-demand benchmark submission with dry-run and budget limits, and benchmark report list and read through FinanceModel's stable report operations.
+- `production-strategy-tool`: the single read/set/clear tool for the per-environment production strategy.
 
 ### Modified Capabilities
 
-None. `openspec/specs/` is empty. The common request pipeline, role classes and release publication from `add-mcp-tool-adapters` apply unchanged to the new tools.
+None. `openspec/specs/` is empty. Existing tools and the common pipeline are unchanged.
 
 ## Impact
 
-- **Code (future):** eight new handler modules on the shared adapter library, catalog entries, and role-class grant updates (plan-writer gains the platform review route and the FinanceModel selection operations; submitter gains the `benchmark` kind; reader gains report reads). The repo pins contracts 1.1.0.
-- **Producers:** FinancialPlanning `add-research-universe-and-daily-loop` (review route, approval block, `review_state` filter) and FinanceModel `add-daily-recommendation-and-on-demand-experiments` (selection and report operations, `benchmark` kind). Each tool returns `DEPENDENCY_UNAVAILABLE` until its producer release is present in the environment.
-- **FinanceAgent:** registers the new tools as Gateway targets from the catalog (change `add-recommendation-review-flow`).
-- **Cost:** Lambda only. `run_benchmark` jobs are at most about USD 0.12 each, charged to `cpu_research` under FinanceModel's authoritative checks.
+- **Code (future):** one handler and its catalog entry. The `plan-writer` role gains FinanceModel's set/clear operations and the `reader` role gains get. The repo pins contracts 1.1.0.
+- **Producer:** FinanceModel `add-daily-recommendation-and-on-demand-experiments`. The tool returns `DEPENDENCY_UNAVAILABLE` until that release is present in the environment.
+- **Cost:** Lambda only, near zero.

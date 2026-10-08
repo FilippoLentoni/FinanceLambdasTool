@@ -188,7 +188,7 @@ def enforced_role_names(env: str) -> list[str]:
     return [n.role_class_role_name(env, "submitter")]
 
 
-def planned_parameters(env: str, outputs: Mapping[str, str], catalog: Mapping[str, Any]) -> dict[str, tuple[str, str]]:
+def planned_parameters(env: str, outputs: Mapping[str, str], catalog: Mapping[str, Any], *, catalog_pointer: Mapping[str, Any] | None = None) -> dict[str, tuple[str, str]]:
     """``{manifest output key: (SSM name, value)}`` for every reference this deploy publishes."""
     from infra.stacks.tools import output_key, role_output_key
 
@@ -206,7 +206,10 @@ def planned_parameters(env: str, outputs: Mapping[str, str], catalog: Mapping[st
         if not value:
             raise ManifestError(f"the {env} deploy did not produce the output {role_output_key(cls)}")
         plan[f"role-{cls}-arn"] = (_name(env, "lambda", f"role-{cls}-arn"), value)
-    plan["tool-catalog"] = (_name(env, "contract", "tool-catalog"), json.dumps(catalog, sort_keys=True, separators=(",", ":")))
+    # The full catalog exceeds the 8 KB SSM limit (first beta deploy failed), so SSM carries a
+    # pointer to the catalog object in the pipeline store, with its digest and the tool names.
+    value = catalog_pointer if catalog_pointer is not None else catalog
+    plan["tool-catalog"] = (_name(env, "contract", "tool-catalog"), json.dumps(value, sort_keys=True, separators=(",", ":")))
     plan["budget-enforced-role-names"] = (_name(env, "config", "budget-enforced-role-names"), ",".join(enforced_role_names(env)))
     return plan
 
@@ -288,6 +291,27 @@ def _put(ssm: Any, env: str, name: str, value: str) -> None:
     ssm.put_parameter(Name=name, Value=value, Type="String", Overwrite=True, Tier=tier)
 
 
+def catalog_object_key(release_id: str, env: str) -> str:
+    return f"{RELEASES_PREFIX}{release_id}/tool-catalog/{env}.json"
+
+
+def store_tool_catalog(s3: Any, bucket: str, release_id: str, env: str, catalog: Mapping[str, Any]) -> dict[str, Any]:
+    """Write the full catalog to the pipeline store and return the small SSM pointer document."""
+    import hashlib
+
+    body = json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    key = catalog_object_key(release_id, env)
+    s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json")
+    return {
+        "kind": "tool-catalog-pointer",
+        "release_id": release_id,
+        "environment": env,
+        "s3_uri": f"s3://{bucket}/{key}",
+        "sha256": hashlib.sha256(body).hexdigest(),
+        "tools": sorted(t.get("name", "") for t in catalog.get("tools", []) if isinstance(t, Mapping)),
+    }
+
+
 def publish_release(
     info: ReleaseInfo,
     env: str,
@@ -305,7 +329,10 @@ def publish_release(
         raise ManifestError("prod manifests require the approval record (approved_by, approved_at)")
     outputs = stack_outputs(cfn, env)
     catalog = build_tool_catalog(env, info.release_id, info.contract_version, descriptions if descriptions is not None else tool_descriptions(), synthetic=info.synthetic)
-    plan = planned_parameters(env, outputs, catalog)
+    pointer_doc = None
+    if s3 is not None and store_bucket:
+        pointer_doc = store_tool_catalog(s3, store_bucket, info.release_id, env, catalog)
+    plan = planned_parameters(env, outputs, catalog, catalog_pointer=pointer_doc)
     for _key, (name, value) in sorted(plan.items()):
         _put(ssm, env, name, value)
     pointer = _name(env, "release", "current-release-id")
