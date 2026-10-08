@@ -55,7 +55,10 @@ def _check_cfg(local: str, resp: dict[str, Any], correlation_id: str) -> None:
 @register_tool(
     "submit_experiment",
     description=(
-        "Submit an asynchronous FinanceModel experiment (backtest or optimization) on an existing "
+        "Submit an asynchronous FinanceModel experiment (backtest, optimization, or job_type "
+        "model_selection: controls vs traditional optimizers vs RL with the configuration's frozen "
+        "train/validation/test protocol; configuration.payload.strategy model_selection, purpose "
+        "research, evaluation_window inside the snapshot coverage) on an existing "
         "snapshot of this environment. Validates the configuration, the snapshot coverage and the "
         "per-call cost limit for the run's budget category first; returns the FinanceModel run_id and "
         "state (queued or awaiting_approval) immediately. dry_run returns the estimate only. Purposes: "

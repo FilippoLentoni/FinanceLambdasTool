@@ -392,3 +392,152 @@ def test_exp16_size_pressure_keeps_the_table():
     pw = doc["comparison"]["primary_weights"]
     assert pw["top_n"] == 5 and len(pw["final"]) == 6 and pw["final"]["other"] > 0
     assert validate_document(doc, "tools/get-experiment-result-response").valid
+
+
+# ------------------------------------------------------------------ model selection (payload.model_selection)
+_STRATS = [("cash", "control", "control"), ("buy_and_hold", "control", "control"), ("equal_weight", "control", "control"),
+           ("min_variance", "traditional", "optimizer"), ("mean_variance", "traditional", "optimizer"), ("scenario_cvar", "traditional", "optimizer"),
+           ("ppo", "rl", "rl"), ("sac", "rl", "rl")]
+_SEED_M = ("total_return", "cagr", "ann_volatility", "sharpe", "max_drawdown", "turnover", "transaction_cost_fraction")
+
+
+def _m(x: float) -> dict:
+    return {k: round(x * (i + 1) / 10, 6) for i, k in enumerate(_SEED_M)}
+
+
+def _ms(n_seeds: int = 5, curve_len: int = 0) -> tuple[dict, dict]:
+    """FinanceModel's ``payload.model_selection`` shape (finplan_model.selection.job), synthetic numbers."""
+    cfg = "cfg_" + "a" * 64
+
+    def section(split):
+        rows = []
+        for i, (name, fam, role) in enumerate(_STRATS):
+            row = {"strategy": name, "role": role, "primary": name == "scenario_cvar", "solution_status": "optimal", "metrics": {**_m(0.1 * i), "transaction_cost": 12.0},
+                   "final_weights": {"VOO": 0.5}, "final_cash_weight": 0.5, "average_weights": {"VOO": 0.5}, "average_cash_weight": 0.5,
+                   "family": fam, "params": {"lookback": 60, "alpha": 0.95} if name == "scenario_cvar" else {}, "selected": name == "scenario_cvar", "incumbent": name == "buy_and_hold"}
+            if fam == "rl":
+                row.update(seed=1, configuration_id=cfg)
+            rows.append(row)
+        return {"schema": "finplan.benchmark_comparison/1", "primary_strategy": "scenario_cvar", "evaluation_window": {"start": "2026-07-01", "end": "2026-09-30", "sessions": 64}, "strategies": rows}
+
+    def rl(algo):
+        seeds = [{"seed": s, "selected": s == 1, **{sp: _m(0.01 * (s + 1)) for sp in ("train", "validation", "test")}} for s in range(n_seeds)]
+        stat = {"n": n_seeds, "mean": 0.01, "std": 0.002, "min": 0.005, "max": 0.02}
+        return {"status": "trained", "hyperparameters": {"total_timesteps": 30000, "net_arch": [64, 64], "gamma": 0.99},
+                "environment": {"window": 20}, "grid": [{"reward": {"risk_penalty": rp}, "configuration_id": cfg, "checkpoints": [{"seed": 0, "curve": list(range(curve_len))}]} for rp in (0.5, 2.0)],
+                "chosen": {"reward": {"risk_penalty": 0.5}, "configuration_id": cfg, "seed": 1, "rule": "configuration: highest mean validation sharpe"},
+                "deterministic_evaluation": True, "seeds": seeds,
+                "seed_statistics": {sp: {k: dict(stat) for k in ("total_return", "sharpe", "max_drawdown", "ann_volatility", "turnover")} for sp in ("train", "validation", "test")}}
+
+    ms = {
+        "schema": "finplan.model_selection/1", "protocol_version": "finplan-model-selection/1", "protocol_id": cfg,
+        "data": {"data_start": "2025-01-02", "data_end": "2026-09-30", "universe": ["AAPL", "GOOGL", "NFLX", "NVDA", "VOO"],
+                 "splits": {"train": {"start": "2025-01-02", "end": "2025-12-31", "sessions": 250}, "validation": {"start": "2026-01-02", "end": "2026-06-30", "sessions": 124}, "test": {"start": "2026-07-01", "end": "2026-09-30", "sessions": 64}}},
+        "evaluation": {"evaluator": "common", "rebalance_frequency": "monthly", "long_only": True, "max_weight": 1.0, "execution_timing": "next_open", "cost_model_id": cfg},
+        "selection": {"rule": {"metric": "sharpe", "split": "validation"}, "selection_checksum": "sha256:" + "b" * 64, "incumbent": "buy_and_hold",
+                      "selected": {"strategy": "scenario_cvar", "family": "traditional", "seed": None},
+                      "validation_ranking": [{"strategy": n, "family": f, "seed": 1 if f == "rl" else None, "validation_sharpe": None if n == "cash" else round(1.0 - 0.1 * i, 6)} for i, (n, f, _) in enumerate(_STRATS)]},
+        "comparison": {sp: section(sp) for sp in ("train", "validation", "test")},
+        "traditional": {"min_variance": {"grid": [], "chosen": {"lookback": 60}}},
+        "rl": {"ppo": rl("ppo"), "sac": rl("sac")},
+        "training_reward": {"note": "shaped", "runs": {}},
+        "promotion_check": {"criteria_version": 1, "candidate": "scenario_cvar", "candidate_seed": None, "incumbent": "buy_and_hold", "incumbent_source": "fallback_no_comparable_production_strategy", "split": "test", "requires_user_approval": True,
+                            "candidate_test": {"total_return": 0.03, "max_drawdown": 0.02}, "incumbent_test": {"total_return": 0.01, "max_drawdown": 0.04}, "r1_net_return_beats_incumbent": True, "r2_drawdown_not_worse": True, "result": "pass"},
+        "test_access": {"evaluated_once_in_this_run": True, "split_evaluations": {"test": 12}, "prior_runs_on_this_test_period": 0, "test_reuse": False},
+        "caveats": [{"kind": k, "text": "Synthetic caveat. " * 5} for k in ("thin_rl_training_data", "hindsight_and_survivorship", "short_single_test_period", "validation_reuse", "reward_is_not_performance")],
+        "compute": {"wall_seconds": 900.0},
+    }
+    return ms, ms["comparison"]["test"]
+
+
+def _ms_req(snap, **kw):
+    r = req(snap, job_type="model_selection", **kw)
+    r["configuration"]["payload"] = {"strategy": "model_selection", "objective": "backtest", "universe": r["configuration"]["payload"]["universe"], "rebalance_frequency": "monthly", "constraints": {"long_only": True, "max_weight": 1.0}}
+    return r
+
+
+def test_exp17_model_selection_submission_dry_run_and_real(offline, invoke, snap):
+    from finplan_tools.core.registry import get_tool
+
+    r = _ms_req(snap)
+    dry = invoke(offline, "submit_experiment", {**r, "dry_run": True})
+    assert not is_error(dry), dry
+    assert dry["run_id"] is None and dry["tool_limit"] == {"budget_category": "cpu_research", "limit_usd": 1.0, "within_limit": True} and not offline.jobs.runs
+    offline.jobs.auto_approve_usd = 0.25
+    resp = invoke(offline, "submit_experiment", r)
+    assert not is_error(resp), resp
+    assert resp["state"] == "queued" and offline.jobs.runs[resp["run_id"]]["job_type"] == "model_selection"
+    assert "model_selection" in get_tool("submit_experiment").description
+
+
+def test_exp17_model_selection_purpose_rules_pass_through(offline, invoke, snap):
+    resp = invoke(offline, "submit_experiment", _ms_req(snap, purpose="tuning"))
+    assert is_error(resp, "VALIDATION_FAILED") and resp["details"]["pointer"] == "/purpose" and not offline.jobs.runs
+    resp = invoke(offline, "submit_experiment", req(snap, job_type="model_selection", idempotency_key="exp-key-0100"))
+    assert is_error(resp, "VALIDATION_FAILED") and "strategy" in json.dumps(resp["details"]) and not offline.jobs.runs
+    assert is_error(invoke(offline, "submit_experiment", _ms_req(snap, purpose="production_candidate", idempotency_key="exp-key-0101")), "FORBIDDEN")
+
+
+def test_exp17_model_selection_summary(offline, invoke):
+    rid = _submitted(offline, invoke)
+    ms, test_section = _ms()
+    offline.jobs.finish(rid, payload_extra={"model_selection": ms, "benchmark": test_section})
+    resp = invoke(offline, "get_experiment_result", {"run_id": rid})
+    assert not is_error(resp), resp
+    s = resp["model_selection"]
+    assert s["schema"] == "finplan.model_selection/1" and s["splits"]["train"] == {"start": "2025-01-02", "end": "2025-12-31", "sessions": 250}
+    assert s["selection"]["selected"] == {"strategy": "scenario_cvar", "family": "traditional", "seed": None} and s["selection"]["rule"]["metric"] == "sharpe"
+    assert s["selection"]["incumbent"] == "buy_and_hold" and s["selection"]["selection_checksum"].startswith("sha256:")
+    assert s["selection"]["validation_ranking"][-1] == {"strategy": "sac", "family": "rl", "seed": 1, "validation_sharpe": 0.3}
+    assert set(s["by_split"]) == {"train", "validation", "test"}
+    test_rows = {r["strategy"]: r for r in s["by_split"]["test"]}
+    assert {r["family"] for r in test_rows.values()} == {"control", "traditional", "rl"}
+    assert test_rows["ppo"]["role"] == "rl" and test_rows["ppo"]["seed"] == 1 and test_rows["scenario_cvar"]["selected"] is True and test_rows["scenario_cvar"]["params"] == {"lookback": 60, "alpha": 0.95}
+    assert test_rows["buy_and_hold"]["incumbent"] is True and "sharpe" in test_rows["sac"] and "final_weights" not in test_rows["sac"]
+    ppo = s["rl"]["ppo"]
+    assert ppo["status"] == "trained" and ppo["chosen"] == {"seed": 1, "reward": {"risk_penalty": 0.5}, "configuration_id": "cfg_" + "a" * 64}
+    assert len(ppo["seeds"]) == 5 and set(ppo["seeds"][0]) == {"seed", "selected", "train", "validation", "test"} and "cagr" not in ppo["seeds"][0]["test"]
+    assert ppo["seed_statistics"]["test"]["sharpe"] == {"n": 5, "mean": 0.01, "std": 0.002, "min": 0.005, "max": 0.02} and "grid" not in ppo
+    assert s["promotion_check"]["result"] == "pass" and s["promotion_check"]["requires_user_approval"] is True and s["promotion_check"]["candidate_test"]["total_return"] == 0.03
+    assert s["test_access"] == {"evaluated_once_in_this_run": True, "test_reuse": False, "prior_runs_on_this_test_period": 0}
+    assert [c["kind"] for c in s["caveats"]][1] == "hindsight_and_survivorship"
+    assert s["evaluation"]["long_only"] is True and s["evaluation"]["max_weight"] == 1.0 and s["evaluation"]["rebalance_frequency"] == "monthly"
+    assert [r["role"] for r in resp["comparison"]["rows"]][-2:] == ["rl", "rl"]  # the test-split comparison keeps RL rows' role
+    assert validate_document(resp, "tools/get-experiment-result-response").valid and response_leaks(resp) == []
+
+
+def test_exp17_model_selection_summary_ignores_unreviewed_values():
+    from finplan_tools.tools.get_experiment_result import model_selection_summary
+
+    ms, _ = _ms(2)
+    ms["selection"]["selected"]["family"] = "astrology"
+    ms["comparison"]["test"]["strategies"][0]["metrics"]["sharpe"] = float("inf")
+    ms["comparison"]["test"]["strategies"][0]["note"] = "free text"
+    ms["comparison"]["test"]["strategies"][1]["params"] = {"../x": 1, "lookback": "free text with spaces", "ok": 3}
+    ms["rl"]["ppo"]["seeds"].append({"seed": "seven"})
+    ms["caveats"].append({"kind": "x", "text": "y" * 5000})
+    s = model_selection_summary(ms)
+    assert s["selection"]["selected"]["family"] is None and s["by_split"]["test"][0]["sharpe"] is None and "note" not in s["by_split"]["test"][0]
+    assert s["by_split"]["test"][1]["params"] == {"ok": 3.0} and len(s["rl"]["ppo"]["seeds"]) == 2 and len(s["caveats"][-1]["text"]) == 600
+    assert model_selection_summary(None) is None and model_selection_summary({"rl": {}}) is None
+
+
+def test_exp17_model_selection_size_pressure_keeps_the_summary():
+    from types import SimpleNamespace
+
+    from finplan_tools.tools.get_experiment_result import get_experiment_result
+    from finplan_tools_testing._base import fixture
+
+    result = fixture("job-result", "succeeded-optimal")
+    ms, test_section = _ms(10, curve_len=4000)
+    result["payload"].update(model_selection=ms, benchmark=test_section)
+    jobs = SimpleNamespace(get_job_result=lambda run_id, meta: result)
+    ctx = SimpleNamespace(jobs=jobs, meta=None, limits=ToolLimits.from_document({"response_max_bytes": 65536}))
+    doc = get_experiment_result(ctx, {"run_id": result["run_id"]})
+    assert doc["truncated"] is True and "model_selection" not in doc["payload"] and "benchmark" in doc["payload"]
+    assert len(doc["model_selection"]["rl"]["sac"]["seeds"]) == 10 and len(json.dumps(doc)) < 65536
+    # tighter: per-seed rows go last, the seed statistics stay
+    ctx.limits = ToolLimits.from_document({"response_max_bytes": 20000})
+    doc = get_experiment_result(ctx, {"run_id": result["run_id"]})
+    assert "seeds" not in doc["model_selection"]["rl"]["ppo"] and doc["model_selection"]["rl"]["ppo"]["seed_statistics"]["test"]["sharpe"]["n"] == 10
+    assert len(json.dumps(doc)) < 20000 and validate_document(doc, "tools/get-experiment-result-response").valid

@@ -41,6 +41,7 @@ class MockJobApi(MockProducer):
             "cpu_small": (0.35, "cpu_research", "cpu"),
             "gpu_training": (3.00, "gpu", "gpu"),
             "explain_batch": (0.10, "bedrock_explanations", "cpu"),
+            "model_selection": (0.20, "cpu_research", "cpu"),
         }
         self.remaining_by_category: dict[str, float] = {"platform_infra": 8.0, "cpu_research": 7.0, "bedrock_explanations": 5.0, "gpu": 25.0, "reserve": 5.0}
         self.auto_approve_usd = 0.0
@@ -105,6 +106,12 @@ class MockJobApi(MockProducer):
             return self.error("VALIDATION_FAILED", "job type is not available in this release", pointer="/job_type")
         if body.get("purpose") == "production_candidate":
             return self.error("FORBIDDEN", "production_candidate runs are not allowed for this principal")
+        if body.get("job_type") == "model_selection":
+            # FinanceModel's model_selection rules (control/validation.py): the protocol comes from its configuration
+            if (body["configuration"].get("payload") or {}).get("strategy") != "model_selection":
+                return self.error("VALIDATION_FAILED", "model_selection configurations name strategy model_selection", pointer="/configuration/payload/strategy")
+            if body.get("purpose") not in ("research", "holdout_evaluation"):
+                return self.error("VALIDATION_FAILED", "model_selection runs with purpose research or holdout_evaluation", pointer="/purpose")
         cfg_id = configuration_id(body["configuration"])
         est = self._estimate(body["job_type"])
         if est["estimated_usd_upper_bound"] > self.remaining_by_category.get(est["budget_category"], 0.0) + 1e-12:
