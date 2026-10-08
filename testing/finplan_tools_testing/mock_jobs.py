@@ -147,7 +147,7 @@ class MockJobApi(MockProducer):
         run["updated_at"] = self.clock.iso()
         run["transitions"].append({"state": state, "at": run["updated_at"]})
 
-    def finish(self, run_id: str, completion: str = "succeeded", solution: str | None = "optimal", *, artifacts_complete: bool | None = None) -> None:
+    def finish(self, run_id: str, completion: str = "succeeded", solution: str | None = "optimal", *, artifacts_complete: bool | None = None, payload_extra: dict[str, Any] | None = None) -> None:
         """Move a run to a terminal state with a contract job-result built from package fixtures."""
         template = {
             ("succeeded", "optimal"): "succeeded-optimal",
@@ -163,6 +163,8 @@ class MockJobApi(MockProducer):
         result.update(run_id=run_id, configuration_id=run["configuration_id"], input_snapshot_id=run["input_snapshot_id"], completed_at=self.clock.iso())
         if artifacts_complete is not None:
             result["artifacts_complete"] = artifacts_complete
+        if payload_extra and isinstance(result.get("payload"), dict):
+            result["payload"].update(copy.deepcopy(payload_extra))
         run["result"] = require_valid(result, "job-result")
         if completion == "succeeded" and solution:
             run["solution_status"] = solution

@@ -314,3 +314,81 @@ def test_exp14_no_platform_call(offline, invoke):
     invoke(offline, "get_experiment_result", {"run_id": rid})
     invoke(offline, "get_job_status", {"run_id": rid})
     assert offline.platform.count() == 0
+
+
+# ------------------------------------------------------------------ comparison summary (payload.benchmark)
+def _bench(n_instruments: int = 5) -> dict:
+    """FinanceModel's ``payload.benchmark`` shape (finplan_model.jobs.comparison)."""
+    names = [f"I{i:03d}" for i in range(n_instruments)]
+    w = {k: round(0.9 / n_instruments, 6) for k in names}
+
+    def row(name, role, tr):
+        return {
+            "strategy": name, "role": role, "primary": role == "optimizer", "solution_status": "optimal" if role == "optimizer" else "not_applicable",
+            "metrics": {"total_return": tr, "cagr": tr * 1.1, "ann_volatility": 0.12, "sharpe": None if name == "cash" else 0.8, "max_drawdown": 0.07, "turnover": 19.6, "transaction_cost": 392.0, "transaction_cost_fraction": 0.00392},
+            "final_weights": {} if name == "cash" else w, "final_cash_weight": 1.0 if name == "cash" else 0.1,
+            "average_weights": {} if name == "cash" else w, "average_cash_weight": 1.0 if name == "cash" else 0.1,
+        }
+
+    return {
+        "schema": "finplan.benchmark_comparison/1", "primary_strategy": "mean_variance",
+        "evaluation_window": {"start": "2024-01-02", "end": "2025-12-31", "sessions": 502}, "periods_per_year": 252,
+        "base_currency": "USD", "initial_capital": 100000.0, "risk_free": {"annual_rate": 0.0, "source": "configured_cash_rate"},
+        "units": {"turnover": "multiple of initial capital; cumulative traded notional (buys + sells) / initial capital", "max_drawdown": "positive fraction", "transaction_cost": "base_currency amount"},
+        "strategies": [row("mean_variance", "optimizer", 0.21), row("cash", "control", 0.0), row("buy_and_hold", "control", 0.18), row("equal_weight", "control", 0.17)],
+    }
+
+
+def test_exp16_benchmark_comparison_table_and_optimizer_weights(offline, invoke):
+    rid = _submitted(offline, invoke)
+    offline.jobs.finish(rid, payload_extra={"benchmark": _bench()})
+    resp = invoke(offline, "get_experiment_result", {"run_id": rid})
+    assert not is_error(resp), resp
+    c = resp["comparison"]
+    assert [r["strategy"] for r in c["rows"]] == ["mean_variance", "cash", "buy_and_hold", "equal_weight"]
+    mv = c["rows"][0]
+    assert mv["role"] == "optimizer" and mv["total_return"] == 0.21 and mv["turnover"] == 19.6 and mv["transaction_cost"] == 392.0 and mv["max_drawdown"] == 0.07
+    assert c["rows"][1]["sharpe"] is None and c["rows"][1]["role"] == "control"
+    assert c["primary_weights"]["strategy"] == "mean_variance" and len(c["primary_weights"]["final"]) == 5 and c["primary_weights"]["final_cash"] == 0.1
+    assert c["evaluation_window"]["sessions"] == 502 and c["risk_free"]["source"] == "configured_cash_rate" and c["base_currency"] == "USD"
+    assert "turnover" in c["units"] and "truncated" not in resp
+    assert resp["payload"]["benchmark"]["strategies"][2]["final_weights"]  # the full block passes through
+    assert validate_document(resp, "tools/get-experiment-result-response").valid and response_leaks(resp) == []
+
+
+def test_exp16_no_benchmark_block_no_comparison(offline, invoke):
+    rid = _submitted(offline, invoke)
+    offline.jobs.finish(rid)
+    assert "comparison" not in invoke(offline, "get_experiment_result", {"run_id": rid})
+
+
+def test_exp16_comparison_ignores_unreviewed_values():
+    from finplan_tools.tools.get_experiment_result import comparison_summary
+
+    bench = _bench(2)
+    bench["strategies"].append({"strategy": "not a/valid name", "metrics": {}})
+    bench["strategies"][0]["metrics"]["sharpe"] = float("nan")
+    bench["strategies"][0]["metrics"]["note"] = "free text"
+    bench["strategies"][0]["final_weights"]["../x"] = 0.5
+    c = comparison_summary(bench)
+    assert [r["strategy"] for r in c["rows"]] == ["mean_variance", "cash", "buy_and_hold", "equal_weight"]
+    assert c["rows"][0]["sharpe"] is None and "note" not in c["rows"][0] and "../x" not in c["primary_weights"]["final"]
+    assert comparison_summary({"strategies": "x"}) is None and comparison_summary(None) is None
+
+
+def test_exp16_size_pressure_keeps_the_table():
+    from types import SimpleNamespace
+
+    from finplan_tools.tools.get_experiment_result import get_experiment_result
+    from finplan_tools_testing._base import fixture
+
+    result = fixture("job-result", "succeeded-optimal")
+    result["payload"]["benchmark"] = _bench(60)
+    jobs = SimpleNamespace(get_job_result=lambda run_id, meta: result)
+    ctx = SimpleNamespace(jobs=jobs, meta=None, limits=ToolLimits.from_document({"response_max_bytes": 4096, "summary_top_n": 5}))
+    doc = get_experiment_result(ctx, {"run_id": result["run_id"]})
+    assert doc["truncated"] is True and "benchmark" not in doc["payload"] and "proposed_allocation" not in doc["payload"]
+    assert len(doc["comparison"]["rows"]) == 4 and len(json.dumps(doc)) < 4096
+    pw = doc["comparison"]["primary_weights"]
+    assert pw["top_n"] == 5 and len(pw["final"]) == 6 and pw["final"]["other"] > 0
+    assert validate_document(doc, "tools/get-experiment-result-response").valid

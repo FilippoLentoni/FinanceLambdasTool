@@ -48,6 +48,7 @@ Scope: phase 1 fixture-backed MCP adapter Lambdas. Tasks marked BLOCKED name the
 - [x] 6.3 Implement async submission with the derived key and dependency gating. Verify EXP-01 and EXP-02 (immediate return with `queued`/`awaiting_approval`; FinanceModel manifest absent → `DEPENDENCY_UNAVAILABLE`) and the TRH-06 duplicate test (one mock run for two identical calls)
 - [x] 6.4 Implement `get_job_status`. Verify EXP-09 (running state, timestamps, no storage locations) and EXP-07 (`awaiting_approval` reported; no tool code path calls approve, enforced by a static check on client methods)
 - [x] 6.5 Implement `get_experiment_result` with separate completion and solution status, non-terminal handling, partial flags and compact sections. Verify EXP-10 (optimal, infeasible, failed), EXP-11 (queued → `PRECONDITION_FAILED`), EXP-12 (timed-out → `artifacts_complete` false), EXP-13 (separate sections, size bound) and EXP-14 (no platform write call made)
+- [x] 6.6 (beta finding, design D7) Surface FinanceModel's `payload.benchmark` in `get_experiment_result` as a compact `comparison` (strategy -> key metrics table, optimizer final and average weights, window, risk-free, units) within the byte limit. Verify EXP-16 unit tests (table and weights from the mock FinanceModel result; no block -> no comparison; unreviewed values dropped; size pressure drops the full block and trims weights but keeps the table; contract-valid response, no leaks)
 
 ## 7. Plan tools (spec plan-tools)
 
