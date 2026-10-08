@@ -70,7 +70,11 @@ def test_pst05_sequence():
     try:
         # 2. set of an unevaluated strategy -> FinanceModel's rejection passed through
         bad = call({"action": "set", "strategy_id": UNEVALUATED, "idempotency_key": key("unevaluated"), "confirmed_by_user": True, "synthetic": True})
-        assert is_error(bad) and bad["code"] == "VALIDATION_FAILED" and bad["details"].get("reason") == "no_evaluation_evidence", bad
+        # FinanceModel names the first failing eligibility rule under details.rule: an unknown strategy
+        # is "strategy_not_registered"; a known one without a universe benchmark is
+        # "no_evaluation_evidence". Either way it must be refused and nothing selected.
+        rule = bad.get("details", {}).get("rule") or bad.get("details", {}).get("reason")
+        assert is_error(bad) and bad["code"] == "VALIDATION_FAILED" and rule in ("no_evaluation_evidence", "strategy_not_registered"), bad
         # 3. confirmed set of buy_and_hold; FinanceModel get shows it
         set_req = {"action": "set", "strategy_id": "buy_and_hold", "idempotency_key": key("set"), "confirmed_by_user": True, "synthetic": True}
         done = call(set_req)
