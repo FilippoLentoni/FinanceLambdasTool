@@ -1,5 +1,9 @@
 """Helpers of the DEPLOYED suites (``tests/integration`` in beta and gamma, ``tests/smoke`` in prod).
 
+Platform market data may be REAL (phase 2, ``yfinance`` lineage) or SYNTHETIC in any environment
+(decision 26: each environment ingests independently; prod may still serve fixture snapshots while it
+transitions). Request fixtures and plan records stay synthetic.
+
 Lesson L5: these suites run REAL calls. ``scripts/stage_runner.py tests`` starts them in the
 environment's stage project with ``FINPLAN_TARGET_ENV`` set; they use the stage role's credentials
 from the default chain (never the offline fake keys) and invoke the deployed tool Lambdas directly
@@ -20,7 +24,19 @@ import pytest
 
 from finplan_tools.core.registry import CATALOG
 
-__all__ = ["TARGET_ENV", "deployed", "fixture_request", "invoke", "is_error", "lambda_client", "ssm_client", "tool_ref", "validate_result"]
+__all__ = [
+    "TARGET_ENV",
+    "check_snapshot_provenance",
+    "deployed",
+    "fixture_request",
+    "integration_snapshot_id",
+    "invoke",
+    "is_error",
+    "lambda_client",
+    "ssm_client",
+    "tool_ref",
+    "validate_result",
+]
 
 TARGET_ENV = os.environ.get("FINPLAN_TARGET_ENV") or ""
 deployed = pytest.mark.skipif(not TARGET_ENV, reason="deployed suite: started by scripts/stage_runner.py with FINPLAN_TARGET_ENV (real AWS calls as the stage role)")
@@ -97,3 +113,44 @@ def fixture_request(tool: str) -> dict[str, Any]:
     files = sorted(folder.glob("*.json"))
     assert files, f"no contract fixture for {tool}"
     return json.loads(files[0].read_text(encoding="utf-8"))
+
+
+#: Lineage providers of the platform's synthetic fixture/mock data (test data only).
+SYNTHETIC_PROVIDERS = ("fixture", "mock")
+
+
+def integration_snapshot_id(env: str | None = None) -> str | None:
+    """The approved snapshot the platform's lifecycle suite last used in ``env``
+    (``/finplan/<env>/financialplanning/config/integration-snapshot-id``), or None when the platform
+    has not published one (for example prod, whose platform suite is a smoke)."""
+    from botocore.exceptions import ClientError
+
+    try:
+        value = ssm_client().get_parameter(Name=f"/finplan/{env or TARGET_ENV}/financialplanning/config/integration-snapshot-id")["Parameter"]["Value"]
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ParameterNotFound":
+            return None
+        raise
+    return value.strip() or None
+
+
+def check_snapshot_provenance(doc: dict[str, Any], *, request_synthetic: bool = False) -> str:
+    """Accept REAL or SYNTHETIC platform market data in every environment (decision 26, data parity).
+
+    Each environment ingests independently: beta and gamma serve phase 2 data (real ``yfinance``
+    snapshots, no ``synthetic`` flag), prod may still serve synthetic fixture snapshots during the
+    transition. Either is valid; what must hold is that the tool surfaces the platform's provenance
+    unchanged: a real snapshot names a real provider in its lineage and the response is not marked
+    synthetic unless the caller flagged the request, and a synthetic snapshot keeps its flag.
+    Returns ``"real"`` or ``"synthetic"``.
+    """
+    snapshot = doc["snapshot"]
+    lineage = snapshot.get("lineage") or {}
+    provider = lineage.get("provider") if isinstance(lineage, dict) else None
+    if snapshot.get("synthetic") is True:
+        assert doc.get("synthetic") is True, "a synthetic snapshot must keep synthetic: true in the tool response"
+        return "synthetic"
+    assert provider and provider not in SYNTHETIC_PROVIDERS, f"a snapshot without synthetic: true must name a real provider in its lineage (got {provider!r})"
+    if not request_synthetic:
+        assert doc.get("synthetic") is not True, "the tool must not mark real platform data as synthetic"
+    return "real"

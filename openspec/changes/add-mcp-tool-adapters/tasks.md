@@ -83,6 +83,7 @@ Scope: phase 1 fixture-backed MCP adapter Lambdas. Tasks marked BLOCKED name the
 - [ ] 10.2 After the FinanceModel beta release, run fixture stub experiments end to end (submit, then status, then result, with infeasible and failed fixtures). Verify that EXP-01 and EXP-10 pass in integration-beta and that only one run exists per duplicate pair
 - [ ] 10.3 Gamma: repeat 10.1 and 10.2 plus isolation (a gamma role calling prod is denied; all resolved references are gamma). Verify the gamma suite (ENV-03, OWN-05)
 - [ ] 10.4 With FinanceAgent in beta: confirm Gateway registration reads the catalog, and that a Gateway-path `get_plan_version` returns the same `plan_version_id` and checksum as a direct platform read. Verify PLN-01 and ENV-15 through Gateway. BLOCKED by LT-OQ-1 and the FinanceAgent release
+- [x] 10.5 Data parity (decision 26): remove gamma/prod assumptions that platform market data is synthetic. The deployed suites read the platform's integration snapshot through `query_market_data` and accept real phase 2 (`yfinance`) or synthetic snapshots in beta, gamma and prod (prod transitional). Verified offline by `tests/unit/test_infra_smoke.py` (provenance check per environment); runs deployed in integration-beta, gamma and smoke
 
 ## Requirement-to-test mapping
 
@@ -147,7 +148,7 @@ Test types: unit, contract (schema/conformance with fixtures and mocks), integra
 | Single direct-test principal per environment | ENVW-08 | unit (synth + name validation: ARN, wildcard, root and list rejected; absent → no grant) + leak scan |
 | Direct invocation before Gateway | ENVW-04 | integration-beta + gamma + smoke (prod denial of non-granted principals and of direct writes) |
 | Credential-free local execution | ENVW-05 | unit + contract (offline run, artifact exclusion) |
-| Phase 1 fixture-backed deployment | ENVW-06 | integration-beta + gamma (ENV-15) |
+| Phase 1 fixture-backed deployment (market data real or synthetic per decision 26) | ENVW-06 | unit (provenance check) + integration-beta + gamma + smoke (ENV-15) |
 | Near-zero standing cost | ENVW-07 | unit (cost check) |
 | Lambda reference per tool (tool-release-publication) | REL-01 | contract + integration-beta |
 | Tool catalog | REL-02 | contract + integration-beta |

@@ -18,6 +18,10 @@ Two build checks, both offline:
     exception is a scenario listed in ``REAL_PROVIDER_LINEAGE_ALLOWED`` (lineage *shape* test): its
     lineage may name a real provider, but its observations must still be synthetic.
 
+  This check covers committed files only. Deployed platform data is a different matter: beta, gamma
+  and (after its transition) prod serve real phase 2 snapshots (decision 26, data parity), and the
+  deployed suites accept real or synthetic platform data (``tests/deployed_support.py``).
+
 Usage: ``uv run python scripts/check_provider_isolation.py [--root DIR]``; exit 1 on any problem.
 """
 

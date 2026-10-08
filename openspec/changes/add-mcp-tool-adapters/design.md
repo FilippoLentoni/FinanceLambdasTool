@@ -158,6 +158,7 @@ Budget enforcement (LT-OQ-3 resolved 2026-10-07):
 ### D8. Phase 1 backends
 
 - **Deployed environments** use only real producer endpoints in the same environment. FinanceModel's phase 1 interface serves CPU fixture stub job types. This keeps `run_id` minting with FinanceModel.
+- **Market-data provenance (decision 26, data parity).** Platform market data in a deployed environment is whatever that environment's platform ingested: real phase 2 `yfinance` snapshots in beta and gamma, real or (transitionally) synthetic in prod. Nothing in the tools or the deployed suites assumes gamma or prod data is synthetic; `tests/deployed_support.check_snapshot_provenance` accepts both and checks the provenance is surfaced unchanged. Plan records created by tests stay synthetic; synthetic market-data fixtures are for offline/unit tests only.
 - **Local tests and the build stage** use an in-process mock platform and a mock job backend driven by contract-package fixtures. These cover duplicate, conflict, infeasible, no-effect, partial-output, budget-rejection and schema-upgrade cases. The mocks live in a test-only package excluded from the deployable artifact (build check).
 - **Rejected:** a deployed "fixture mode" in beta that fakes `run_id`s. It would mint identifiers outside FinanceModel and give false end-to-end signals.
 
@@ -208,7 +209,7 @@ The pipeline follows contracts D6.
 - **Pre-deploy, each environment:** the per-call limit bound check against the budget allocation (D5), and a compatibility check against the platform manifest. A missing or incompatible platform blocks the deploy. FinanceModel absence only marks the experiment tools unavailable.
 - **Beta:** a direct-invocation conformance suite plus integration-beta tests.
 - **Gamma:** the same suite plus isolation tests.
-- **Prod:** read-only smoke against the synthetic prod portfolio.
+- **Prod:** read-only smoke against the synthetic prod portfolio; prod market data may be real or synthetic (decision 26).
 
 ## Risks / Trade-offs
 

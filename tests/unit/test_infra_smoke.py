@@ -32,3 +32,31 @@ def test_deployed_suites_skip_offline():
     from tests.deployed_support import deployed
 
     assert deployed.args[0] is True  # skip condition holds offline
+
+
+def test_deployed_provenance_check_accepts_real_and_synthetic_snapshots(offline_factory, invoke):
+    """Decision 26 (data parity): the deployed suites accept a REAL phase 2 snapshot (``yfinance``
+    lineage, no ``synthetic`` flag) and a still-SYNTHETIC one in every environment, prod included; the
+    tool must surface the platform's provenance unchanged. Snapshots here are in-memory mock data."""
+    import pytest
+
+    from finplan_tools.core.registry import get_tool
+    from finplan_tools.tools import load_all
+    from tests.deployed_support import check_snapshot_provenance
+
+    load_all()
+    if get_tool("query_market_data") is None:
+        pytest.skip("query_market_data not registered")
+    for env in ("beta", "gamma", "prod"):
+        o = offline_factory(env)
+        synthetic_sid = o.platform.add_snapshot()
+        o.platform.snapshots[synthetic_sid]["synthetic"] = True
+        real_sid = o.platform.add_snapshot(lineage={"provider": "yfinance", "provider_library": "yfinance", "library_version": "1.7.0", "retrieved_at": "2026-01-10T13:00:00Z"})
+        o.platform.snapshots[real_sid].pop("synthetic", None)
+        assert check_snapshot_provenance(invoke(o, "query_market_data", {"input_snapshot_id": synthetic_sid})) == "synthetic"
+        assert check_snapshot_provenance(invoke(o, "query_market_data", {"input_snapshot_id": real_sid})) == "real"
+        flagged = invoke(o, "query_market_data", {"input_snapshot_id": real_sid, "synthetic": True})
+        assert check_snapshot_provenance(flagged, request_synthetic=True) == "real"
+    # a real-looking snapshot naming a mock provider without the flag is a provenance defect
+    with pytest.raises(AssertionError):
+        check_snapshot_provenance({"snapshot": {"lineage": {"provider": "fixture"}}})

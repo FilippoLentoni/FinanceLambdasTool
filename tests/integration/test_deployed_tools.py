@@ -1,8 +1,10 @@
 """Deployed beta/gamma suite (tasks 10.1-10.3 groundwork; REL-01..REL-03, ENVW-03, ENVW-04, ENVW-06,
 ENV-03; lesson L5). REAL calls as the stage role: direct Lambda invocation of every deployed tool,
 which makes real SigV4 calls to the same environment's deployed platform and FinanceModel APIs.
-Fixture-backed only: requests are the contract package's synthetic fixtures; nothing touches a
-non-synthetic portfolio and no paid job is submitted (FinanceModel phase 1 serves CPU fixture stubs).
+Requests are the contract package's synthetic fixtures; nothing touches a non-synthetic portfolio and
+no paid job is submitted (FinanceModel phase 1 serves CPU fixture stubs). Platform market data is NOT
+assumed synthetic: beta and gamma run the platform's phase 2 (real ``yfinance`` snapshots), and the
+suite accepts real or synthetic snapshots alike (decision 26, data parity across stages).
 
 Skipped offline; ``scripts/stage_runner.py tests`` runs it with ``FINPLAN_TARGET_ENV=beta|gamma`` and
 fails the stage if nothing executed.
@@ -16,7 +18,20 @@ import pytest
 
 from finplan_tools.core.registry import CATALOG
 from infra.stacks import naming as n
-from tests.deployed_support import TARGET_ENV, WIRING_FAILURES, deployed, fixture_request, invoke, is_error, lambda_client, ssm_client, tool_ref, validate_result
+from tests.deployed_support import (
+    TARGET_ENV,
+    WIRING_FAILURES,
+    check_snapshot_provenance,
+    deployed,
+    fixture_request,
+    integration_snapshot_id,
+    invoke,
+    is_error,
+    lambda_client,
+    ssm_client,
+    tool_ref,
+    validate_result,
+)
 
 pytestmark = [pytest.mark.deployed, deployed, pytest.mark.skipif(TARGET_ENV == "prod", reason="prod runs tests/smoke only")]
 
@@ -96,6 +111,24 @@ def test_platform_reads_reach_the_deployed_platform(tool):
         assert doc["code"] == "NOT_FOUND", doc
 
 
+def test_query_market_data_reads_the_platform_integration_snapshot():
+    """Decision 26 (data parity): the approved snapshot the platform's lifecycle suite published for
+    this environment is read through the tool whether it is REAL (phase 2, ``yfinance`` lineage, no
+    ``synthetic`` flag) or SYNTHETIC, with its provenance surfaced unchanged. The request is not
+    flagged synthetic so the response reflects the platform's data."""
+    sid = integration_snapshot_id()
+    if sid is None:
+        pytest.skip("the platform has not published an integration snapshot in this environment")
+    doc = invoke("query_market_data", {"input_snapshot_id": sid})
+    validate_result("query_market_data", doc)
+    if is_error(doc):
+        # the snapshot may have expired or been superseded since the platform run: never a wiring failure
+        assert doc["code"] in ("NOT_FOUND", "PRECONDITION_FAILED", "DEPENDENCY_UNAVAILABLE", "RATE_LIMITED"), doc
+        pytest.skip(f"integration snapshot not readable now: {doc['code']}")
+    assert doc["snapshot"]["input_snapshot_id"] == sid
+    check_snapshot_provenance(doc)
+
+
 @pytest.mark.parametrize("tool", ["create_override_version", "validate_plan_version", "publish_plan_version"])
 def test_plan_writer_calls_are_authorized(tool):
     """The plan-writer role class reaches the plan API (fixture IDs are unknown -> NOT_FOUND or a
@@ -107,7 +140,8 @@ def test_plan_writer_calls_are_authorized(tool):
 
 
 def test_refresh_market_data_is_idempotent_against_the_platform():
-    """MKT-01/MKT-02 groundwork: the platform's fixture provider in this environment; a duplicate
+    """MKT-01/MKT-02 groundwork: ingestion through the platform's provider adapter in this environment
+    (fixture provider or, in phase 2, ``yfinance``; the tool never calls a provider); a duplicate
     request returns the same snapshot (one ingestion)."""
     req = fixture_request("refresh_market_data")
     req["idempotency_key"] = f"ci-refresh-{TARGET_ENV}-0001"

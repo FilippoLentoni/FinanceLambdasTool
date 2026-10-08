@@ -86,7 +86,7 @@ The pipeline SHALL redeploy a recorded `release_id`'s stored artifact without re
 - **THEN** `rel_X` is redeployed, the Lambda references point to the `rel_X` versions, and the manifest records `rolled_back_from` `rel_Y`
 
 ### Requirement: Prod smoke tests are non-mutating or synthetic
-Prod smoke tests SHALL invoke `describe_capabilities` and read-only tools against the platform's synthetic prod portfolio. They MUST NOT submit paid jobs or publish plans for non-synthetic portfolios.
+Prod smoke tests SHALL invoke `describe_capabilities` and read-only tools against the platform's synthetic prod portfolio. They MUST NOT submit paid jobs or publish plans for non-synthetic portfolios. The synthetic requirement applies to the records the smoke touches (portfolios, plans), not to market data: prod snapshots may be real phase 2 data or still synthetic during the transition, and both are accepted (decision 26).
 
 #### Scenario: Prod smoke run
 - **WHEN** the prod smoke stage runs

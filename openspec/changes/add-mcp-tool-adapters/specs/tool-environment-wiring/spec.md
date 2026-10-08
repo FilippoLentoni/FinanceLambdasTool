@@ -83,6 +83,12 @@ Each tool handler SHALL run locally against an in-process mock platform and mock
 ### Requirement: Phase 1 fixture-backed deployment
 In phase 1, deployed tools SHALL be backed by the platform's fixture data and synthetic portfolios and by FinanceModel's CPU fixture stub job. Tools MUST make no live market-data provider call of their own and start no GPU compute.
 
+Note (decision 26, 2026-10-07, data parity across stages): platform market data is not fixture-only in any deployed environment. The platform serves phase 2 data (real `yfinance` snapshots: `finance/etf-daily/SPY` and the research universe `finance/equity-etf-daily/research-universe`) in beta and, from this release, gamma; prod follows in a later release and may serve synthetic fixture snapshots meanwhile. Each environment ingests independently. Tools and the deployed suites SHALL accept real snapshots (no `synthetic` flag, lineage provider `yfinance`) and synthetic ones alike in beta, gamma and prod, surfacing the platform's provenance unchanged. Plan records created by tests stay synthetic; synthetic market-data fixtures remain only for offline/unit tests. The no-provider-call rule above is unchanged.
+
+#### Scenario: Real phase 2 snapshot in gamma or prod
+- **WHEN** a deployed suite reads the platform's integration snapshot (`/finplan/<env>/financialplanning/config/integration-snapshot-id`) through `query_market_data` in beta, gamma or prod
+- **THEN** a real snapshot (lineage provider `yfinance`, no `synthetic` flag) and a synthetic snapshot are both accepted, and the response is marked `synthetic` only when the snapshot (or the request) is
+
 #### Scenario: Phase 1 experiment in gamma
 - **WHEN** `submit_experiment` runs in gamma during phase 1
 - **THEN** it reaches only the gamma FinanceModel fixture stub job type, and any other job type is reported unavailable
