@@ -29,6 +29,9 @@ class GatewayCall:
     tool_name: str | None
     arguments: Any
     message_id: str | None = None
+    #: Verified caller groups. Always empty until FA-OQ-2 / LT-OQ-1 decide how the Gateway passes
+    #: verified caller claims to a Lambda target: group-gated actions fail closed (FORBIDDEN).
+    caller_groups: frozenset[str] = frozenset()
 
 
 def _custom(context: Any) -> Mapping[str, Any] | None:

@@ -51,7 +51,10 @@ def test_tampered_wheel_fails(tmp_path):
 def test_range_pin_fails(tmp_path):
     root = _copy_pin_tree(tmp_path)
     py = root / "pyproject.toml"
-    py.write_text(py.read_text().replace('"finplan-contracts==1.0.0"', '"finplan-contracts>=1.0"'))
+    version = json.loads((root / "contracts-pin.json").read_text())["version"]
+    text = py.read_text()
+    assert f'"finplan-contracts=={version}"' in text
+    py.write_text(text.replace(f'"finplan-contracts=={version}"', '"finplan-contracts>=1.0"'))
     assert any("exactly" in p for p in check(root, check_installed=False))
 
 
@@ -196,7 +199,7 @@ def test_catalog_matches_pinned_schemas():
     from finplan_tools.core.contracts import store
     from finplan_tools.core.registry import CATALOG
 
-    assert len(CATALOG) == 12
+    assert len(CATALOG) == 13
     for e in CATALOG.values():
         assert e.input_schema in store() and e.output_schema in store()
         assert e.prod_direct_test is (not e.state_changing)

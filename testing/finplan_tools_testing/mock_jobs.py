@@ -9,7 +9,9 @@ Modelled: content-addressed ``configuration_id``; cost estimate per job type and
 :attr:`remaining_by_category` (``BUDGET_EXCEEDED``); ``production_candidate`` refused; GPU or
 over-auto-approve runs held in ``awaiting_approval``; idempotent submission (replay or
 ``IDEMPOTENCY_KEY_REUSED``); outcome control with :meth:`finish` (optimal, infeasible, no_effect,
-failed, timed-out partial ...). Every answer validates against its contract schema.
+failed, timed-out partial ...); the 1.1.0 production-strategy selection
+(``GET``/``PUT v1/production-strategy``: registry validation with ``no_evaluation_evidence``,
+confirmation, idempotency). Every answer validates against its contract schema.
 """
 
 from __future__ import annotations
@@ -43,12 +45,49 @@ class MockJobApi(MockProducer):
         self.remaining_by_category: dict[str, float] = {"platform_infra": 8.0, "cpu_research": 7.0, "bedrock_explanations": 5.0, "gpu": 25.0, "reserve": 5.0}
         self.auto_approve_usd = 0.0
         self.runs: dict[str, dict[str, Any]] = {}
+        self.environment = "beta"
+        #: FinanceModel strategy registry: registered strategies and those with evaluation evidence.
+        self.registered_strategies: set[str] = {"buy_and_hold", "momentum_12_1"}
+        self.evaluated_strategies: set[str] = {"buy_and_hold"}
+        self.production_strategy: dict[str, Any] | None = None
         r = self.route
         r("POST", "v1/jobs", "submit_job", self._submit)
         r("GET", "v1/jobs/{run_id}", "get_job_status", self._status)
         r("GET", "v1/jobs/{run_id}/result", "get_job_result", self._result)
         r("POST", "v1/jobs/{run_id}/approve", "approve_run", lambda request, run_id: self.error("FORBIDDEN", "tool roles may not approve runs"))
         r("POST", "v1/jobs/{run_id}/cancel", "cancel_job", lambda request, run_id: self.error("FORBIDDEN", "tool roles may not cancel runs"))
+        r("GET", "v1/production-strategy", "get_production_strategy", self._get_strategy)
+        r("PUT", "v1/production-strategy", "put_production_strategy", self._put_strategy)
+
+    # ================================================================ production strategy (1.1.0)
+    def _get_strategy(self, request: Any) -> tuple[int, Any]:
+        return 200, {"strategy": copy.deepcopy(self.production_strategy)}
+
+    def _put_strategy(self, request: Any) -> tuple[int, Any]:
+        body = request.body or {}
+        action = body.get("action")
+        if action not in ("set", "clear"):
+            return self.error("VALIDATION_FAILED", "action must be set or clear", pointer="/action")
+        if body.get("confirmed_by_user") is not True:
+            return self.error("PRECONDITION_FAILED", "user confirmation is required", reason="confirmation_required")
+
+        def apply() -> tuple[int, Any]:
+            before = copy.deepcopy(self.production_strategy)
+            if action == "clear":
+                self.production_strategy = None
+            else:
+                sid = body.get("strategy_id")
+                if sid not in self.registered_strategies:
+                    return self.error("VALIDATION_FAILED", "the strategy is not registered", reason="unknown_strategy", pointer="/strategy_id")
+                if sid not in self.evaluated_strategies:
+                    return self.error("VALIDATION_FAILED", "the strategy has no evaluation evidence", reason="no_evaluation_evidence", pointer="/strategy_id", strategy_id=sid)
+                doc = {"strategy_id": sid, "environment": self.environment, "selected_at": self.clock.iso(), "selected_by": "synthetic-operator", "contract_version": contract_version()}
+                if body.get("synthetic") is True:
+                    doc["synthetic"] = True
+                self.production_strategy = require_valid(doc, "production-strategy")
+            return 200, {"strategy": copy.deepcopy(self.production_strategy), "changed": before != self.production_strategy}
+
+        return self.idempotent("put_production_strategy", body, apply)
 
     # ================================================================ submit
     def _estimate(self, job_type: str) -> dict[str, Any]:

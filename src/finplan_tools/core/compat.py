@@ -18,7 +18,7 @@ from finplan_contracts.canonical import configuration_id as _configuration_id
 from .contracts import contract_major
 from .errors import DEPENDENCY_UNAVAILABLE, PRECONDITION_FAILED, UNSUPPORTED_CONTRACT_VERSION, ToolError
 
-__all__ = ["local_configuration_id", "check_configuration_id", "check_snapshot_compatibility", "check_producer_major", "producer_availability"]
+__all__ = ["local_configuration_id", "check_configuration_id", "check_snapshot_compatibility", "check_producer_major", "check_producer_release", "producer_availability"]
 
 
 def local_configuration_id(configuration: Any) -> str:
@@ -71,10 +71,41 @@ def check_producer_major(manifest: Mapping[str, Any] | None, producer: str) -> N
         raise ToolError(UNSUPPORTED_CONTRACT_VERSION, f"the {producer} release does not serve contract major {contract_major()}", details={"served_contract_majors": served, "producer": producer})
 
 
-def producer_availability(manifest: Mapping[str, Any] | None) -> tuple[bool, str | None]:
+def _semver(value: Any) -> tuple[int, int, int] | None:
+    if not isinstance(value, str):
+        return None
+    parts = value.split("+", 1)[0].split("-", 1)[0].split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return None
+    return int(parts[0]), int(parts[1]), int(parts[2])
+
+
+def check_producer_release(manifest: Mapping[str, Any] | None, producer: str, minimum: str | None = None) -> None:
+    """:func:`check_producer_major`, then (when ``minimum`` is set) require the producer release to
+    declare ``contract_version`` >= ``minimum``: an older release does not serve the operation yet,
+    which is ``DEPENDENCY_UNAVAILABLE`` (not retryable) and never a call to a missing route."""
+    check_producer_major(manifest, producer)
+    if minimum is None:
+        return
+    declared = _semver((manifest or {}).get("contract_version"))
+    need = _semver(minimum)
+    if need is None:  # pragma: no cover - catalog constant
+        raise ValueError(f"bad minimum contract version {minimum!r}")
+    if declared is None or declared < need:
+        raise ToolError(
+            DEPENDENCY_UNAVAILABLE,
+            f"the {producer} release in this environment does not serve this operation yet (needs contract {minimum})",
+            retryable=False,
+            producer=producer,
+            reason="operation_not_released",
+            required_contract_version=minimum,
+        )
+
+
+def producer_availability(manifest: Mapping[str, Any] | None, minimum: str | None = None) -> tuple[bool, str | None]:
     """(available, reason code) for describe_capabilities: absent -> DEPENDENCY_UNAVAILABLE."""
     try:
-        check_producer_major(manifest, "producer")
+        check_producer_release(manifest, "producer", minimum)
     except ToolError as exc:
         return False, exc.code
     return True, None

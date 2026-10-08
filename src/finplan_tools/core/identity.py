@@ -23,6 +23,16 @@ Direct invocation event (documented in docs/direct-invocation.md)::
 
 A ``caller`` value anywhere in the event or at the top of ``arguments`` is never trusted: it is
 removed before validation and recorded only as an untrusted, redacted annotation in the audit log.
+
+Caller groups (``Invocation.groups``; add-approval-and-strategy-tools T2) come only from the trusted
+invocation source, never from the request:
+
+* ``direct_test`` (the environment's single direct-test principal, the project owner) and ``ci_test``
+  (this repo's pipeline stage role) act for the project owner, who holds ``plan_publisher``. In prod
+  neither may invoke a state-changing tool (Lambda grants and the pipeline's prod check).
+* Gateway callers have NO verified groups until the Gateway-to-Lambda caller propagation is decided
+  (FinanceAgent FA-OQ-2 / LT-OQ-1, CONTRACT GAP-2): group-gated actions fail closed with
+  ``FORBIDDEN`` through the Gateway. Only :mod:`finplan_tools.core.gateway` changes when it closes.
 """
 
 from __future__ import annotations
@@ -54,6 +64,11 @@ _CLASSES = {
     SOURCE_CI_TEST: ("pipeline", "ci_test"),
     SOURCE_GATEWAY: ("gateway", "hosted_agent"),
 }
+#: Groups each trusted direct source acts with (see the module docstring).
+_SOURCE_GROUPS = {
+    SOURCE_DIRECT_TEST: frozenset({"plan_publisher"}),
+    SOURCE_CI_TEST: frozenset({"plan_publisher"}),
+}
 _ALLOWED_ENVELOPE_KEYS = {INVOCATION_KEY, "tool", "arguments", "caller"}
 _ALLOWED_INVOCATION_KEYS = {"source", "environment", "correlation_id", "contract_version", "caller"}
 _SAFE = re.compile(r"^[A-Za-z0-9_.:@-]{1,64}\Z")
@@ -78,6 +93,8 @@ class Invocation:
     correlation_hint: str | None = None
     declared_contract_version: Any = None
     untrusted: dict[str, str] = field(default_factory=dict)
+    #: Verified caller groups (Cognito-group names); empty when the source carries none.
+    groups: frozenset[str] = frozenset()
 
 
 def resolve_invocation(event: Any, context: Any, *, environment: str) -> Invocation:
@@ -94,7 +111,7 @@ def resolve_invocation(event: Any, context: Any, *, environment: str) -> Invocat
             untrusted["caller"] = _annotation(args["caller"])
             args = {k: v for k, v in args.items() if k != "caller"}
         prefix, channel = _CLASSES[SOURCE_GATEWAY]
-        return Invocation(SOURCE_GATEWAY, f"{prefix}:{environment}", channel, environment, args, gw.tool_name, untrusted=untrusted)
+        return Invocation(SOURCE_GATEWAY, f"{prefix}:{environment}", channel, environment, args, gw.tool_name, untrusted=untrusted, groups=gw.caller_groups)
 
     if not isinstance(event, Mapping) or not isinstance(event.get(INVOCATION_KEY), Mapping):
         raise ToolError.unauthorized("the invocation carries neither Gateway context nor a configured direct-test marker")
@@ -126,6 +143,7 @@ def resolve_invocation(event: Any, context: Any, *, environment: str) -> Invocat
         correlation_hint=meta.get("correlation_id") if isinstance(meta.get("correlation_id"), str) else None,
         declared_contract_version=meta.get("contract_version"),
         untrusted=untrusted,
+        groups=_SOURCE_GROUPS[source],
     )
 
 

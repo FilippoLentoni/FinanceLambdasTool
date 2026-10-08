@@ -38,14 +38,15 @@ def declared_granularities() -> list[str]:
 
 
 def tool_entries(ctx: Any) -> list[dict[str, Any]]:
-    manifests: dict[str, tuple[bool, str | None]] = {}
+    manifests: dict[tuple[str, str | None], tuple[bool, str | None]] = {}
     out = []
     for name, entry in CATALOG.items():
         available, reason = True, None
         for producer in entry.producers:
-            if producer not in manifests:
-                manifests[producer] = producer_availability(ctx.manifest(producer))
-            ok, why = manifests[producer]
+            key = (producer, entry.min_producer_contract)
+            if key not in manifests:
+                manifests[key] = producer_availability(ctx.manifest(producer), entry.min_producer_contract)
+            ok, why = manifests[key]
             if not ok:
                 available, reason = False, why
                 break

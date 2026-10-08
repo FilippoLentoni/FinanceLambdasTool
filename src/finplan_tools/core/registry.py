@@ -64,6 +64,9 @@ class CatalogEntry:
     role_class: str
     producers: tuple[str, ...]
     timeout_key: str
+    #: Lowest producer contract release (``contract_version`` of its release manifest) that serves
+    #: the operations this tool calls; an older producer release -> ``DEPENDENCY_UNAVAILABLE``.
+    min_producer_contract: str | None = None
 
     @property
     def input_schema(self) -> str:
@@ -104,6 +107,9 @@ CATALOG: dict[str, CatalogEntry] = {
         CatalogEntry("create_override_version", True, "plan-writer", (PRODUCER_PLATFORM,), "write"),
         CatalogEntry("validate_plan_version", True, "plan-writer", (PRODUCER_PLATFORM,), "write"),
         CatalogEntry("publish_plan_version", True, "plan-writer", (PRODUCER_PLATFORM,), "write"),
+        # contracts 1.1.0 (add-approval-and-strategy-tools): get/set/clear of FinanceModel's
+        # production strategy; FinanceModel serves the selection operations from its 1.1.0 release.
+        CatalogEntry("production_strategy", True, "plan-writer", (PRODUCER_MODEL,), "write", min_producer_contract="1.1.0"),
     )
 }
 
@@ -129,7 +135,19 @@ class ToolSpec:
     #: Optional check of the raw request run after the storage-input check and before schema
     #: validation (raise :class:`~finplan_tools.core.errors.ToolError`); no producer call allowed.
     pre_validate: Callable[[dict[str, Any]], None] | None = None
+    #: Whether THIS request changes state (default: the catalog kind). A tool with read and write
+    #: actions (``production_strategy``) requires an ``idempotency_key`` only for its writes.
+    writes: Callable[[dict[str, Any]], bool] | None = None
+    #: Optional caller authorization ``(invocation, request, tool_fields)`` run after schema
+    #: validation and the environment check, before dependency gating and any producer call.
+    authorize: Callable[[Any, dict[str, Any], dict[str, Any]], None] | None = None
+    #: Request fields the tool reads that the pinned request schema does not declare: the pipeline
+    #: removes them before schema validation and hands them to ``authorize`` and ``ctx.tool_fields``.
+    tool_only_fields: tuple[str, ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def request_writes(self, request: dict[str, Any]) -> bool:
+        return self.writes(request) if self.writes is not None else self.entry.state_changing
 
     @property
     def name(self) -> str:
@@ -188,6 +206,9 @@ def register_tool(
     grant_pointers: tuple[str, ...] = (),
     gate_dependencies: bool = True,
     pre_validate: Callable[[dict[str, Any]], None] | None = None,
+    writes: Callable[[dict[str, Any]], bool] | None = None,
+    authorize: Callable[[Any, dict[str, Any], dict[str, Any]], None] | None = None,
+    tool_only_fields: tuple[str, ...] = (),
     replace: bool = False,
 ) -> Callable[[RunFn], RunFn]:
     """Decorator registering ``run`` as the implementation of catalog tool ``name``."""
@@ -206,7 +227,7 @@ def register_tool(
     def deco(fn: RunFn) -> RunFn:
         if name in _REGISTRY and not replace and _REGISTRY[name].run is not fn:
             raise ValueError(f"tool {name!r} is already registered")
-        _REGISTRY[name] = ToolSpec(entry, description, fn, list_key, truncated_key, tuple(grant_pointers), gate_dependencies, pre_validate)
+        _REGISTRY[name] = ToolSpec(entry, description, fn, list_key, truncated_key, tuple(grant_pointers), gate_dependencies, pre_validate, writes, authorize, tuple(tool_only_fields))
         return fn
 
     return deco

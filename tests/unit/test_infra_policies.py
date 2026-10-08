@@ -106,6 +106,7 @@ def test_every_tool_role_class_has_its_routes():
         "create_override_version": [("GET", "v1/portfolios/x", False), ("POST", "v1/plans/p/versions", False)],
         "validate_plan_version": [("POST", "v1/plan-versions/v/validate", False)],
         "publish_plan_version": [("POST", "v1/plans/p/publications", False)],
+        "production_strategy": [("GET", "v1/production-strategy", True), ("PUT", "v1/production-strategy", True)],
     }
     for tool, calls in needs.items():
         for method, path, job in calls:

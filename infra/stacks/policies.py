@@ -17,12 +17,15 @@ class         may (``execute-api:Invoke`` only on THIS environment's producer AP
 ============  ==========================================================================
 reader        platform ``GET`` plans, plan versions, portfolios, snapshots; job ``GET``
 submitter     reader + ``POST /v1/ingestions`` + ``POST /v1/jobs`` (dry run and submit)
-plan-writer   reader + version create, validate and publish
+plan-writer   reader + version create, validate and publish + FinanceModel production-strategy
+              ``GET``/``PUT /v1/production-strategy`` (``production_strategy`` tool, 1.1.0)
 ============  ==========================================================================
 
 Every class also reads only its own environment's producer references in SSM and writes only its
 own log streams (lesson L3), and carries explicit denies: platform execution routes, job
-``approve``/``cancel``, any non-GET call for ``reader``, SageMaker, storage and SSM writes, Lambda
+``approve``/``cancel``, any non-GET call for ``reader``, any write to FinanceModel's
+``/finplan/<env>/financemodel/config/*`` parameters (PST-04: FinanceModel's selection operation is
+the single writer of its production-strategy key), SageMaker, storage and SSM writes, Lambda
 invocation, every other environment's named resources (single account) and the live-financial
 deny list (ENV-05). The environment permission boundary (``finplan-<env>-permission-boundary``)
 adds the tag-based isolation.
@@ -46,6 +49,7 @@ __all__ = [
     "JOB_READ_ROUTES",
     "PLAN_WRITER_ROUTES",
     "PLATFORM_READ_ROUTES",
+    "STRATEGY_ROUTES",
     "ProducerApis",
     "build_role_statements",
     "deploy_execution_statements",
@@ -64,6 +68,10 @@ PLATFORM_READ_ROUTES = ("v1/plans/*", "v1/plan-versions/*", "v1/portfolios/*", "
 JOB_READ_ROUTES = ("v1/jobs/*",)
 #: plan-writer routes (D1).
 PLAN_WRITER_ROUTES = (("POST", "v1/plans/*/versions"), ("POST", "v1/plan-versions/*/validate"), ("POST", "v1/plans/*/publications"))
+#: FinanceModel production-strategy selection operations (plan-writer; contracts 1.1.0).
+STRATEGY_ROUTES = (("GET", "v1/production-strategy"), ("PUT", "v1/production-strategy"))
+#: SSM write actions explicitly denied on FinanceModel configuration (PST-04).
+CONFIG_WRITE_ACTIONS = ("ssm:PutParameter", "ssm:DeleteParameter", "ssm:DeleteParameters", "ssm:LabelParameterVersion", "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource")
 #: Platform execution routes, never callable by a tool (D1, PLN-08).
 EXECUTION_PATHS = ("*/*/*/v1/publications/*/executions", "*/*/*/v1/executions*")
 #: Job approval and cancellation, never callable by a tool (EXP-07, D1).
@@ -134,12 +142,14 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
         st.append({"Sid": "JobSubmit", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.job_id, apis.job_stage, "POST", "v1/jobs", **kw)]})
     if role_class == "plan-writer":
         st.append({"Sid": "PlanWrites", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.plan_id, apis.plan_stage, m, p, **kw) for m, p in PLAN_WRITER_ROUTES]})
+        st.append({"Sid": "ProductionStrategy", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.job_id, apis.job_stage, m, p, **kw) for m, p in STRATEGY_ROUTES]})
     st += [
         {"Sid": "ReadOwnEnvironmentReferences", "Effect": "Allow", "Action": ["ssm:GetParameter"], "Resource": [_param(p, **kw) for p in tool_reference_names(env)]},
         {"Sid": "OwnLogStreams", "Effect": "Allow", "Action": ["logs:CreateLogStream", "logs:PutLogEvents"], "Resource": [_arn("logs", f"log-group:{g}:*", **kw) for g in groups]},
         # ---- explicit denies (they hold even if an allow above were widened)
         {"Sid": "DenyExecutionRoutes", "Effect": "Deny", "Action": ["execute-api:Invoke"], "Resource": [_arn("execute-api", p, **kw) for p in EXECUTION_PATHS]},
         {"Sid": "DenyApproveAndCancel", "Effect": "Deny", "Action": ["execute-api:Invoke"], "Resource": [_arn("execute-api", p, **kw) for p in APPROVE_CANCEL_PATHS]},
+        {"Sid": "DenyFinanceModelConfigWrites", "Effect": "Deny", "Action": list(CONFIG_WRITE_ACTIONS), "Resource": [_param(f"/finplan/{env}/financemodel/config", **kw), _param(f"/finplan/{env}/financemodel/config/*", **kw)]},
     ]
     if role_class == "reader":
         st.append({"Sid": "DenyNonReadCalls", "Effect": "Deny", "Action": ["execute-api:Invoke"], "Resource": [_arn("execute-api", f"*/*/{m}/*", **kw) for m in _WRITE_METHODS]})

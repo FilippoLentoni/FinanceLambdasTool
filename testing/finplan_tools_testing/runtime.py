@@ -85,6 +85,7 @@ def offline_runtime(
     clock = Clock()
     platform = MockPlatform(clock=clock)
     jobs = MockJobApi(clock=clock)
+    jobs.environment = env
     params = DictParameterStore()
     if with_platform:
         params.put(f"/finplan/{env}/financialplanning/release/manifest", release_manifest("financialplanning", env, served_majors=platform_majors))

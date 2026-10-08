@@ -35,7 +35,7 @@ from typing import Any, Callable, Mapping
 from . import audit
 from .artifacts import response_leaks, storage_input_problems
 from .bounds import bound_list, response_size, unwrap_token, wrap_token
-from .compat import check_producer_major
+from .compat import check_producer_release
 from .config import Settings, ToolLimits
 from .contracts import contract_version, parse_major, served_majors, validate_document
 from .errors import FORBIDDEN, INTERNAL, ToolError, from_validation
@@ -123,6 +123,8 @@ class ToolContext:
     jobs: Any
     synthetic: bool = False
     downstream_ids: dict[str, list[str]] = field(default_factory=dict)
+    #: The request's tool-only fields (``ToolSpec.tool_only_fields``), removed before validation.
+    tool_fields: dict[str, Any] = field(default_factory=dict)
 
     # ---------------------------------------------------------------- identity
     @property
@@ -229,11 +231,13 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
             raise ToolError.validation("storage locations, URIs, ARNs and path-like values are not accepted; use a trusted artifact reference", pointer=leaks[0])
         if spec.pre_validate is not None:  # tool-specific checks of the raw request (no producer call)
             spec.pre_validate(request)
+        # tool-only fields (not in the pinned request schema) are checked by the tool, never forwarded
+        tool_fields = {k: request.pop(k) for k in spec.tool_only_fields if k in request}
         # 4. input schema (pinned validators, incl. identifier formats and semantic checks)
         result = validate_document(request, spec.input_schema)
         if not result.valid:
             raise from_validation(result)
-        if spec.state_changing and "idempotency_key" not in request:
+        if spec.request_writes(request) and "idempotency_key" not in request:
             raise ToolError.validation("write tools require an idempotency_key", pointer="/idempotency_key")
         # 5. environment
         env = runtime.settings.environment
@@ -241,14 +245,16 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
             raise ToolError(FORBIDDEN, "the request targets another environment than this tool", reason="environment_mismatch")
         if env == "prod" and spec.state_changing and inv.source != "gateway":
             raise ToolError(FORBIDDEN, "state-changing tools are not directly invocable in prod", reason="prod_direct_write")
+        if spec.authorize is not None:  # caller authorization, before any producer call
+            spec.authorize(inv, request, tool_fields)
         # 6. dependency gating, then the tool itself
         if spec.gate_dependencies:
             for producer in spec.producers:
-                check_producer_major(runtime.manifest(producer), producer)
+                check_producer_release(runtime.manifest(producer), producer, spec.entry.min_producer_contract)
         limits = runtime.limits()
         timeout = float(limits.timeouts_seconds.get(spec.entry.timeout_key, limits.timeouts_seconds.get("read", 15)))
         meta = CallMeta(correlation_id=cid, contract_version=contract_version(), caller=caller_block(inv, cid, synthetic=synthetic))
-        ctx = ToolContext(spec, runtime, inv, cid, limits, meta, runtime.platform(timeout), runtime.jobs(timeout), synthetic=synthetic)
+        ctx = ToolContext(spec, runtime, inv, cid, limits, meta, runtime.platform(timeout), runtime.jobs(timeout), synthetic=synthetic, tool_fields=tool_fields)
         ctx.record_ids(request)
         response = spec.run(ctx, request)
         if not isinstance(response, dict):

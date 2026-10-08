@@ -29,6 +29,7 @@ pinned `finplan-contracts` schemas and calls exactly one producer in the same en
 | `refresh_market_data` | write | platform ingestion |
 | `submit_experiment` | write | FinanceModel job API (dry run, then submit) |
 | `create_override_version`, `validate_plan_version`, `publish_plan_version` | write | platform plan API |
+| `production_strategy` (`get`, `set`, `clear`) | write (`get` reads) | FinanceModel production-strategy operation (contracts 1.1.0; see `docs/tools.md`) |
 
 Out of scope: trade execution or execution recording, live trading, Coinbase, AgentCore payments,
 wallet spending, approving paid jobs, and automated rewriting of risk preferences.
