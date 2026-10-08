@@ -1,0 +1,9 @@
+{
+  "$comment": "Per-environment, non-secret deployment settings. No account IDs, ARNs, endpoints or principal names: producer references, the Gateway principal and the single direct-test principal name are resolved from same-environment SSM at deploy and run time (design D9).",
+  "region": "us-east-2",
+  "environments": {
+    "beta":  {"direct_test_write_tools": true,  "log_retention_days": 30},
+    "gamma": {"direct_test_write_tools": true,  "log_retention_days": 30},
+    "prod":  {"direct_test_write_tools": false, "log_retention_days": 30}
+  }
+}

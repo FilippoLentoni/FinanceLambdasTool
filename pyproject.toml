@@ -1,0 +1,47 @@
+[project]
+name = "finplan-tools"
+version = "0.1.0"
+description = "FinanceLambdasTool: thin, stateless MCP adapter Lambdas over the FinancialPlanning plan/ingestion APIs and the FinanceModel job API (OpenSpec change add-mcp-tool-adapters)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # Contract package, pinned by exact version AND by the SHA-256 digest of the exact wheel
+    # (contracts-pin.json, verified by scripts/check_contracts_pin.py and by uv.lock).
+    # The wheel is the FinancialPlanning-built artifact, vendored byte for byte until the
+    # CodeArtifact registry (/finplan/shared/financialplanning/contract/registry-ref) serves it.
+    # Re-pin with: uv run python scripts/check_contracts_pin.py --repin
+    "finplan-contracts==1.0.0",
+    "boto3>=1.40",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "moto[ssm,sts]>=5.1",
+    "aws-cdk-lib>=2.220.0,<3",
+    "constructs>=10.4,<11",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.sources]
+finplan-contracts = { path = "vendor/finplan-contracts/finplan_contracts-1.0.0-py3-none-any.whl" }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Only the deployable package. The test-only mocks (testing/finplan_tools_testing) are never
+# part of the wheel or the Lambda bundle (spec tool-environment-wiring, ENVW-05).
+packages = ["src/finplan_tools"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "src", "testing"]
+addopts = "-q -p no:cacheprovider"
+markers = [
+    "synth: tests that synthesize CDK stacks (offline)",
+    "deployed: deployed-environment suites run by scripts/stage_runner.py with the stage role (never offline)",
+]

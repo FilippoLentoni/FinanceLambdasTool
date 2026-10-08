@@ -4,3 +4,8 @@ node_modules/
 cdk.out/
 .env
 *.local.json
+.pytest_cache/
+.ruff_cache/
+.build/
+cdk.out.bootstrap/
+release-info.json

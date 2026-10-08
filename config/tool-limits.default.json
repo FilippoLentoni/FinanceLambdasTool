@@ -1,0 +1,16 @@
+{
+  "response_max_bytes": 65536,
+  "per_call_max_fraction": 0.2,
+  "max_estimated_usd_per_call": {
+    "platform_infra": 0,
+    "cpu_research": 1.0,
+    "bedrock_explanations": 0,
+    "gpu": 5.0,
+    "reserve": 0
+  },
+  "page_size_default": 20,
+  "page_size_max": 100,
+  "summary_top_n": 10,
+  "reference_ttl_seconds": 300,
+  "timeouts_seconds": {"read": 15, "write": 30, "refresh_market_data": 60}
+}
