@@ -204,6 +204,22 @@ def deploy_execution_statements(env: str, store_bucket_arn: str, *, partition: s
     ]
 
 
+def _invoke_own_tools(env: str, functions: str, **kw: str) -> list[dict[str, Any]]:
+    """The stage role may invoke its environment's tools, except prod write tools: an identity policy
+    alone grants same-account invocation, so the first prod smoke could call write tools. An explicit
+    Deny (function and every alias/version) wins over the Allow."""
+    st: list[dict[str, Any]] = [{"Sid": "InvokeOwnTools", "Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": [functions]}]
+    if env == "prod":
+        from finplan_tools.core.registry import CATALOG
+
+        write = sorted(t for t, e in CATALOG.items() if not e.prod_direct_test)
+        if write:
+            # one pattern per tool covers the function and its aliases (no write-tool name is a
+            # prefix of a read-tool name)
+            res = [_arn("lambda", f"function:{n.function_name(env, t)}*", **kw) for t in write]
+            st.append({"Sid": "DenyProdWriteTools", "Effect": "Deny", "Action": ["lambda:InvokeFunction", "lambda:InvokeAsync"], "Resource": res})
+    return st
+
 def stage_role_statements(env: str, store_bucket_arn: str, *, partition: str = PARTITION, region: str = REGION, account: str = ACCOUNT) -> list[dict[str, Any]]:
     """Pre-deploy resolver, release publisher and environment test runner of ``env``."""
     own = f"/finplan/{env}/{n.REPO}"
@@ -223,7 +239,7 @@ def stage_role_statements(env: str, store_bucket_arn: str, *, partition: str = P
         {"Sid": "ApprovalRecord", "Effect": "Allow", "Action": ["codepipeline:ListActionExecutions", "codepipeline:GetPipelineExecution"], "Resource": [_arn("codepipeline", n.PIPELINE_NAME, **kw)]},
         # deployed suites: real direct invocation of this environment's tools (lesson L5) and
         # read-only inspection of their configuration and resource policies (ENVW-03)
-        {"Sid": "InvokeOwnTools", "Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": [functions]},
+        *_invoke_own_tools(env, functions, **kw),
         {"Sid": "InspectOwnTools", "Effect": "Allow", "Action": ["lambda:GetFunctionConfiguration", "lambda:GetAlias", "lambda:GetPolicy"], "Resource": [functions]},
         {"Sid": "DenyOtherEnvironments", "Effect": "Deny", "Action": "*", "Resource": _other_env_named(env, **kw)},
     ]

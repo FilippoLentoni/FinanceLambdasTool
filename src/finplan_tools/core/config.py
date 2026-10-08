@@ -49,7 +49,7 @@ DEFAULT_TOOL_LIMITS: dict[str, Any] = {
     "page_size_max": 100,
     "summary_top_n": 10,
     "reference_ttl_seconds": 300,
-    "timeouts_seconds": {"read": 15, "write": 30, "refresh_market_data": 60},
+    "timeouts_seconds": {"read": 30, "write": 30, "refresh_market_data": 60},
 }
 
 

@@ -143,3 +143,18 @@ def test_policies_fit_the_inline_size_limit():
         for cls in ("reader", "submitter", "plan-writer"):
             doc = role_class_policy(env, cls, apis=APIS[env], **KW)
             assert len(re.sub(r"\s", "", json.dumps(doc, separators=(",", ":")))) < 10240
+
+
+def test_prod_stage_role_cannot_invoke_write_tools():
+    """Regression (first prod smoke): the stage role's identity policy let it invoke prod write tools."""
+    from finplan_tools.core.registry import CATALOG
+    from infra.stacks import naming as n
+    from infra.stacks.policies import stage_role_statements
+
+    st = stage_role_statements("prod", "arn:aws:s3:::example-bucket")
+    deny = [s for s in st if s.get("Sid") == "DenyProdWriteTools"]
+    assert len(deny) == 1 and deny[0]["Effect"] == "Deny" and "lambda:InvokeFunction" in deny[0]["Action"]
+    for tool, entry in CATALOG.items():
+        hit = any(r.split("function:", 1)[1].rstrip("*") == n.function_name("prod", tool) for r in deny[0]["Resource"])
+        assert hit is (not entry.prod_direct_test), tool
+    assert not [s for s in stage_role_statements("beta", "arn:aws:s3:::example-bucket") if s.get("Sid") == "DenyProdWriteTools"]
