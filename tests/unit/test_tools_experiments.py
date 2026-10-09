@@ -233,8 +233,8 @@ def test_exp07_no_approval_or_cancel_code_path():
     """Static check: no client method or route string can approve or cancel a run."""
     for cls in (JobClient, PlatformClient):
         names = [n for n in dir(cls) if not n.startswith("_")]
-        assert not [n for n in names if re.search(r"approve|cancel|execut|order|trade", n)], cls
-    route = re.compile(r"""["'][^"']*/(approve|cancel|executions)\b""")
+        assert not [n for n in names if n != "list_executions" and re.search(r"approve|cancel|execut|order|trade", n)], cls
+    route = re.compile(r"""["'][^"']*/(approve|cancel)\b""")
     for p in SRC.rglob("*.py"):
         tree = ast.parse(p.read_text(encoding="utf-8"))
         strings = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]

@@ -199,7 +199,7 @@ def test_catalog_matches_pinned_schemas():
     from finplan_tools.core.contracts import store
     from finplan_tools.core.registry import CATALOG
 
-    assert len(CATALOG) == 13
+    assert len(CATALOG) == 18
     for e in CATALOG.values():
         assert e.input_schema in store() and e.output_schema in store()
         assert e.prod_direct_test is (not e.state_changing)

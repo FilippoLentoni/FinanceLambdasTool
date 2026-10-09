@@ -91,3 +91,12 @@ class PlatformClient:
     def run_ingestion(self, body: Mapping[str, Any], meta: CallMeta, *, timeout: float | None = None) -> Any:
         # The ingestion reference is the full POST URL (``.../v1/ingestions``): empty path.
         return call(self.ingestion, self.PRODUCER, "POST", "", meta, body=dict(body), timeout=timeout or self.timeout)
+
+    def get_publication(self, publication_id, meta):
+        return self._get(f"v1/publications/{publication_id}",meta)
+
+    def list_publications(self, plan_id, meta, **query):
+        return self._get(f"v1/plans/{plan_id}/publications",meta,query)
+
+    def list_executions(self, publication_id, meta, **query):
+        return self._get(f"v1/publications/{publication_id}/executions",meta,query)

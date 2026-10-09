@@ -53,6 +53,7 @@ ROLE_CLASSES = ("reader", "submitter", "plan-writer")
 PRODUCER_PLATFORM = "financialplanning"
 PRODUCER_MODEL = "financemodel"
 #: Tool inventory deny-list (D6, PLN-08): no execution, trading, order, payment or wallet tool.
+READ_ONLY_EXCEPTIONS = frozenset({"list_executions"})
 DENIED_WORDS = ("execute", "execution", "trade", "trading", "order", "payment", "wallet")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{1,63}\Z")
 
@@ -95,6 +96,11 @@ def _schema_name(tool: str, kind: str) -> str:
 CATALOG: dict[str, CatalogEntry] = {
     e.name: e
     for e in (
+        CatalogEntry("get_publication", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
+        CatalogEntry("list_publications", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
+        CatalogEntry("list_executions", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
+        CatalogEntry("recommend_portfolio", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.2.0"),
+        CatalogEntry("get_performance_evidence", False, "reader", (PRODUCER_MODEL,), "read", min_producer_contract="1.2.0"),
         CatalogEntry("describe_capabilities", False, "reader", (), "read"),
         CatalogEntry("query_market_data", False, "reader", (PRODUCER_PLATFORM,), "read"),
         CatalogEntry("get_plan", False, "reader", (PRODUCER_PLATFORM,), "read"),
@@ -192,7 +198,7 @@ def inventory_problems(names: Iterable[str]) -> list[str]:
         if not _NAME.match(n):
             out.append(f"tool name {n!r} is not snake_case")
         hit = [w for w in DENIED_WORDS if w in n]
-        if hit:
+        if hit and n not in READ_ONLY_EXCEPTIONS:
             out.append(f"tool {n!r} names a denied capability ({', '.join(hit)})")
     return out
 

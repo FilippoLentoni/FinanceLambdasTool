@@ -16,7 +16,7 @@ from finplan_tools.core.idempotency import DERIVED_KEY_PATTERN
 from finplan_tools.core.registry import CATALOG
 from finplan_tools_testing.scenarios import ETF_DATASET, SCENARIOS
 
-EXPERIMENT_TOOLS = {"submit_experiment", "get_job_status", "get_experiment_result", "production_strategy"}
+EXPERIMENT_TOOLS = {"submit_experiment", "get_job_status", "get_experiment_result", "production_strategy", "recommend_portfolio", "get_performance_evidence"}
 PLATFORM_TOOLS = {n for n, e in CATALOG.items() if "financialplanning" in e.producers}
 
 

@@ -63,9 +63,9 @@ REGION = contract_iam.REGION
 ACCOUNT = contract_iam.ACCOUNT
 
 #: Platform read routes (method GET) the tools use (backends/platform.py).
-PLATFORM_READ_ROUTES = ("v1/plans/*", "v1/plan-versions/*", "v1/portfolios/*", "v1/snapshots/*")
+PLATFORM_READ_ROUTES = ("v1/plans/*", "v1/plan-versions/*", "v1/portfolios/*", "v1/snapshots/*", "v1/publications/*")
 #: FinanceModel job reads (``get_job_status``, ``get_job_result``).
-JOB_READ_ROUTES = ("v1/jobs/*",)
+JOB_READ_ROUTES = ("v1/recommendations", "v1/performance-evidence", "v1/jobs/*",)
 #: plan-writer routes (D1).
 PLAN_WRITER_ROUTES = (("POST", "v1/plans/*/versions"), ("POST", "v1/plan-versions/*/validate"), ("POST", "v1/plans/*/publications"))
 #: FinanceModel production-strategy selection operations (plan-writer; contracts 1.1.0).
@@ -73,7 +73,7 @@ STRATEGY_ROUTES = (("GET", "v1/production-strategy"), ("PUT", "v1/production-str
 #: SSM write actions explicitly denied on FinanceModel configuration (PST-04).
 CONFIG_WRITE_ACTIONS = ("ssm:PutParameter", "ssm:DeleteParameter", "ssm:DeleteParameters", "ssm:LabelParameterVersion", "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource")
 #: Platform execution routes, never callable by a tool (D1, PLN-08).
-EXECUTION_PATHS = ("*/*/*/v1/publications/*/executions", "*/*/*/v1/executions*")
+EXECUTION_PATHS = tuple(f"*/*/{method}/{path}" for method in ("POST","PUT","PATCH","DELETE") for path in ("v1/publications/*/executions", "v1/executions*"))
 #: Job approval and cancellation, never callable by a tool (EXP-07, D1).
 APPROVE_CANCEL_PATHS = ("*/*/*/v1/jobs/*/approve", "*/*/*/v1/jobs/*/cancel")
 _WRITE_METHODS = ("POST", "PUT", "PATCH", "DELETE")
@@ -111,6 +111,7 @@ def tool_reference_names(env: str) -> list[str]:
         f"/finplan/{env}/financialplanning/api/ingestion-endpoint",
         f"/finplan/{env}/financialplanning/release/manifest",
         f"/finplan/{env}/financemodel/api/job-endpoint",
+        f"/finplan/{env}/financemodel/api/strategy-function-ref",
         f"/finplan/{env}/financemodel/release/manifest",
         n.own_ssm(env, "config", "tool-limits"),
     ]
@@ -153,11 +154,19 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
     ]
     if role_class == "reader":
         st.append({"Sid": "DenyNonReadCalls", "Effect": "Deny", "Action": ["execute-api:Invoke"], "Resource": [_arn("execute-api", f"*/*/{m}/*", **kw) for m in _WRITE_METHODS]})
+    inference_arn = _arn("lambda", f"function:finplan-{env}-financemodel-job-api-handler-inference", **kw)
+    if role_class == "reader":
+        st += [
+            {"Sid": "InvokeFrozenStrategy", "Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": [inference_arn]},
+            {"Sid": "DenyOtherLambdaInvocations", "Effect": "Deny", "Action": ["lambda:InvokeFunction"], "NotResource": [inference_arn]},
+        ]
+    else:
+        st.append({"Sid": "DenyLambdaInvocations", "Effect": "Deny", "Action": ["lambda:InvokeFunction"], "Resource": "*"})
     st += [
         {
             "Sid": "DenyComputeStorageAndConfigWrites",
             "Effect": "Deny",
-            "Action": ["sagemaker:*", "s3:*", "dynamodb:*", "ssm:PutParameter", "ssm:DeleteParameter", "ssm:DeleteParameters", "ssm:LabelParameterVersion", "lambda:InvokeFunction", "lambda:InvokeAsync", "iam:PassRole"],
+            "Action": ["sagemaker:*", "s3:*", "dynamodb:*", "ssm:PutParameter", "ssm:DeleteParameter", "ssm:DeleteParameters", "ssm:LabelParameterVersion", "lambda:InvokeAsync", "iam:PassRole"],
             "Resource": "*",
         },
         {"Sid": "DenyOtherEnvironments", "Effect": "Deny", "Action": "*", "Resource": _other_env_named(env, **kw)},

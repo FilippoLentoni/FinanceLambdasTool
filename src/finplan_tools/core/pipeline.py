@@ -24,6 +24,8 @@ called before step 6, which every negative test asserts through the mocks' call 
 
 from __future__ import annotations
 
+import os
+
 import logging
 import re
 import time
@@ -101,11 +103,18 @@ class Runtime:
         plan_t = SigV4HttpTransport(refs.plan_endpoint, region=settings.region, credentials=creds, producer=PRODUCER_PLATFORM)
         ingest_t = SigV4HttpTransport(refs.ingestion_endpoint, region=settings.region, credentials=creds, producer=PRODUCER_PLATFORM)
         job_t = SigV4HttpTransport(refs.job_endpoint, region=settings.region, credentials=creds, producer=PRODUCER_MODEL)
+        from botocore.config import Config
+        from ..backends.strategy import StrategyLambdaClient
+        values = os.environ if environ is None else environ
+        strategy = StrategyLambdaClient(
+            sess.client("lambda", region_name=settings.region, config=Config(connect_timeout=3, read_timeout=280, retries={"total_max_attempts": 1})),
+            refs, environment=settings.environment, region=settings.region, account=values.get("FINPLAN_ACCOUNT_ID", ""),
+        )
         return cls(
             settings=settings,
             references=refs,
             platform=lambda timeout: PlatformClient(plan_t, ingest_t, timeout=timeout),
-            jobs=lambda timeout: JobClient(job_t, timeout=timeout),
+            jobs=lambda timeout: JobClient(job_t, timeout=timeout, strategy_client=strategy),
         )
 
 
