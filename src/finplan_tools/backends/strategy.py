@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from ..core.errors import ToolError, from_producer_envelope
 
 MAX_RESPONSE_BYTES = 65536
+log = logging.getLogger(__name__)
 
 
 class StrategyLambdaClient:
@@ -26,6 +28,8 @@ class StrategyLambdaClient:
             response = self.client.invoke(FunctionName=ref, InvocationType="RequestResponse", Payload=json.dumps(payload, allow_nan=False).encode())
         except Exception as exc:
             code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+            message = getattr(exc, "response", {}).get("Error", {}).get("Message", "")
+            log.error("strategy invocation failed: %s %s", code or type(exc).__name__, message)
             if code == "AccessDeniedException":
                 raise ToolError.forbidden("strategy service invocation was denied") from None
             raise ToolError.dependency_unavailable("strategy service could not be reached") from None
