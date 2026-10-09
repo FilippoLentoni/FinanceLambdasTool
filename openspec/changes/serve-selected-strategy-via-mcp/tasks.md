@@ -8,7 +8,7 @@
 
 ## 2. Deployed beta verification
 
-- [ ] 2.1 Deploy beta through the existing pipeline and verify the registered Gateway Lambda target returns the pinned strategy under an authenticated caller.
+- [x] 2.1 Deploy beta through the existing pipeline and verify the registered Gateway Lambda target returns the pinned strategy under an authenticated caller.
 
 ## Workflow follow-up
 
