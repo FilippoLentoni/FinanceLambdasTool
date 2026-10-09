@@ -204,7 +204,7 @@ def test_catalog_matches_pinned_schemas():
         assert e.input_schema in store() and e.output_schema in store()
         assert e.prod_direct_test is (not e.state_changing)
         assert e.role_class == ("reader" if not e.state_changing else e.role_class)
-    tools_dir = {p.name.removesuffix("-request.json").replace("-", "_") for ns in ("core", "finance") for p in (store().root / ns / "v1" / "tools").glob("*-request.json")}
+    tools_dir = {p.name.removesuffix("-request.json").replace("-", "_") for ns in ("core", "finance") for p in (store().root / ns / "v1" / "tools").glob("*-request.json") if p.with_name(p.name.replace("-request.json", "-response.json")).exists()}
     assert tools_dir == set(CATALOG)
 
 

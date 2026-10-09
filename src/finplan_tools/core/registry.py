@@ -71,6 +71,9 @@ class CatalogEntry:
 
     @property
     def input_schema(self) -> str:
+        if self.name == "recommend_portfolio":
+            # The original explicit-state request remains immutable for 1.2 consumers.
+            return "tools/recommend-portfolio-invocation-request"
         return _schema_name(self.name, "request")
 
     @property
@@ -99,7 +102,7 @@ CATALOG: dict[str, CatalogEntry] = {
         CatalogEntry("get_publication", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
         CatalogEntry("list_publications", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
         CatalogEntry("list_executions", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
-        CatalogEntry("recommend_portfolio", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.2.0"),
+        CatalogEntry("recommend_portfolio", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.3.0"),
         CatalogEntry("get_performance_evidence", False, "reader", (PRODUCER_MODEL,), "read", min_producer_contract="1.2.0"),
         CatalogEntry("describe_capabilities", False, "reader", (), "read"),
         CatalogEntry("query_market_data", False, "reader", (PRODUCER_PLATFORM,), "read"),

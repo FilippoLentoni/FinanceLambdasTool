@@ -110,3 +110,44 @@ def test_reader_can_invoke_only_own_strategy_service_and_cannot_train():
         assert not allowed('lambda:InvokeFunction', resource), resource
     assert not allowed('sagemaker:CreateProcessingJob', '*')
     assert not allowed('ssm:PutParameter', f'arn:aws:ssm:us-east-2:{ACCOUNT}:parameter/finplan/beta/financemodel/config/advisory-policy')
+
+
+def test_empty_request_flows_through_tool_pipeline_and_preserves_share_cash_evidence(offline, invoke):
+    from finplan_contracts.schemas import contracts_root
+    from finplan_tools.backends.jobs import JobClient
+    fixture_path=next((contracts_root()/'fixtures/tools/recommend-portfolio-response/valid').glob('*saved*.json'))
+    response=json.loads(fixture_path.read_text())
+    # Consistent indicative sell: 20 shares at 450 to 10 shares, with proceeds left in cash.
+    rec=response['recommendation']
+    rec['target_weights']=[{'instrument_id':'VOO','weight':.45}]
+    rec['cash_weight']=.55
+    rec['decisions'][0].update(action='sell',delta_weight=-.45,indicative_notional=-4500.)
+    client=Client(json.dumps(response).encode())
+    offline.runtime.jobs=lambda timeout:JobClient(offline.jobs,timeout=timeout,strategy_client=backend(client))
+    got=invoke(offline,'recommend_portfolio',{})
+    assert got==response,got
+    assert len(client.calls)==1 and json.loads(client.calls[0]['Payload'])['request']=={}
+    assert got['recommendation']['decisions'][0]['delta_quantity']==-10
+    assert got['recommendation']['cash_weight']==.55
+    assert got['recommendation']['portfolio_state']['source']=='saved_paper'
+    assert offline.jobs.count()==0 and offline.platform.count()==0
+
+
+def test_default_recommendation_rejects_old_model_before_lambda_call(offline, invoke):
+    from finplan_tools.backends.jobs import JobClient
+    from finplan_tools_testing.runtime import release_manifest
+    release=release_manifest('financemodel','beta');release['contract_version']='1.2.0'
+    offline.set_param('financemodel','release','manifest',release)
+    client=Client()
+    offline.runtime.jobs=lambda timeout:JobClient(offline.jobs,timeout=timeout,strategy_client=backend(client))
+    got=invoke(offline,'recommend_portfolio',{})
+    assert got['code']=='DEPENDENCY_UNAVAILABLE' and got['details']['required_contract_version']=='1.3.0'
+    assert not client.calls and offline.jobs.count()==0 and offline.platform.count()==0
+
+
+def test_default_request_schema_supports_saved_book_without_mixing_actual_state():
+    from finplan_tools.core.contracts import validate_document
+    assert validate_document({},'tools/recommend-portfolio-invocation-request').valid
+    assert validate_document({'portfolio_id':'pf_01KDVDNAZ83BAMMYCEGWF33DPM'},'tools/recommend-portfolio-invocation-request').valid
+    assert not validate_document({'as_of':'2026-10-08'},'tools/recommend-portfolio-invocation-request').valid
+    assert not validate_document({'holdings':{}},'tools/recommend-portfolio-invocation-request').valid
