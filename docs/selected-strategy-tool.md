@@ -16,8 +16,9 @@ the Gateway invocation, not a separately verified user subject.
 The strategy service's deadline is 270 seconds, the adapter's SDK read deadline is 280 seconds,
 the MCP Lambda target is 300 seconds and the beta agent's MCP request deadline is 330 seconds.
 Legacy tool-limit documents inherit the new deadline while retaining existing overrides. Only
-the reader role can invoke the exact same-environment strategy function; other functions and
-training/configuration writes remain denied.
+the reader role can invoke the exact same-environment strategy function, including Lambda's
+authorization of the unqualified request against its `$LATEST` resource. Published versions,
+aliases, other functions and training/configuration writes remain denied.
 
 FinancialPlanning → FinanceModel → FinanceLambdasTool → FinanceAgent is the initial beta release
 order. Supported artifact/parameter updates subsequently use strategy activation and do not

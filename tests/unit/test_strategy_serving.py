@@ -98,7 +98,15 @@ def test_reader_can_invoke_only_own_strategy_service_and_cannot_train():
     def allowed(action, resource):
         return evaluate(Request(action, resource), {'identity':policy}, boundary).allowed
     assert allowed('lambda:InvokeFunction', ARN)
-    assert not allowed('lambda:InvokeFunction', ARN.replace('beta','gamma'))
-    assert not allowed('lambda:InvokeFunction', ARN.replace('inference','dispatcher'))
+    assert allowed('lambda:InvokeFunction', ARN + ':$LATEST')
+    for resource in (
+        ARN + ':1',
+        ARN + ':live',
+        ARN.replace('beta','gamma'),
+        ARN.replace('beta','gamma') + ':$LATEST',
+        ARN.replace('inference','dispatcher'),
+        ARN.replace('inference','dispatcher') + ':$LATEST',
+    ):
+        assert not allowed('lambda:InvokeFunction', resource), resource
     assert not allowed('sagemaker:CreateProcessingJob', '*')
     assert not allowed('ssm:PutParameter', f'arn:aws:ssm:us-east-2:{ACCOUNT}:parameter/finplan/beta/financemodel/config/advisory-policy')

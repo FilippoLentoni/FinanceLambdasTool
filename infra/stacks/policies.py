@@ -156,9 +156,12 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
         st.append({"Sid": "DenyNonReadCalls", "Effect": "Deny", "Action": ["execute-api:Invoke"], "Resource": [_arn("execute-api", f"*/*/{m}/*", **kw) for m in _WRITE_METHODS]})
     inference_arn = _arn("lambda", f"function:finplan-{env}-financemodel-job-api-handler-inference", **kw)
     if role_class == "reader":
+        # An unqualified InvokeFunction request can be authorized against $LATEST by Lambda.
+        # Keep both exact resource forms; published versions and aliases remain denied.
+        inference_resources = [inference_arn, f"{inference_arn}:$LATEST"]
         st += [
-            {"Sid": "InvokeFrozenStrategy", "Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": [inference_arn]},
-            {"Sid": "DenyOtherLambdaInvocations", "Effect": "Deny", "Action": ["lambda:InvokeFunction"], "NotResource": [inference_arn]},
+            {"Sid": "InvokeFrozenStrategy", "Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": inference_resources},
+            {"Sid": "DenyOtherLambdaInvocations", "Effect": "Deny", "Action": ["lambda:InvokeFunction"], "NotResource": inference_resources},
         ]
     else:
         st.append({"Sid": "DenyLambdaInvocations", "Effect": "Deny", "Action": ["lambda:InvokeFunction"], "Resource": "*"})
