@@ -37,6 +37,13 @@ machine/direct-test markers cannot approve. Acceptance records simulated fractio
 issued reference prices, disclosed costs and one new revision. Rejection leaves holdings unchanged.
 Retries preserve the downstream idempotency key; the Platform also prevents permanent double application.
 
+Public MCP responses project audit caller metadata consistently, including nested resolutions in
+decision reads, history and explanations/performance analyses. Private IAM principals are represented
+by stable `principal_hash` values; raw account and transport fields are omitted. The verified caller's
+subject hash, role/channel and correlation joins remain available. This projection preserves all
+financial fields and retries exactly, and leaves immutable producer artifacts and their checksums
+unchanged. A returned checksum identifies that original artifact rather than the projected JSON bytes.
+
 All deployed adapters save sanitized successful/failed invocation receipts through the Platform
 activity API, excluding credentials and private grants. Explicit archive calls do not recursively
 archive themselves. A failed durable archive is reported rather than presenting an unarchived success.

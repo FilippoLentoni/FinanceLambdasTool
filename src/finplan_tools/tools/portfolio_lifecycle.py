@@ -186,5 +186,5 @@ def list_agent_activity(ctx, request):
         exact = _encode_cursor("ae1_", {"activity_event_id": state.get("a")})
         page = sanitize(producer_doc(ctx.platform.list_agent_activity(ctx.meta, **query, page_size=1, next_token=exact), "immutable activity event"))
         return _activity_fragment(ctx, page, query, offset=state.get("o"), expected=state)
-    return _history_page(ctx, request, "events", lambda **page: sanitize(ctx.platform.list_agent_activity(ctx.meta, **query, **page)), "agent activity history",
+    return _history_page(ctx, request, "events", lambda **page: sanitize(producer_doc(ctx.platform.list_agent_activity(ctx.meta, **query, **page), "agent activity history")), "agent activity history",
                          oversized=lambda page: _activity_fragment(ctx, page, query))
