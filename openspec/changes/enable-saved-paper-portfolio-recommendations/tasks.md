@@ -7,4 +7,4 @@
 
 ## 2. Beta integration
 
-- [ ] 2.1 Deploy beta through the existing pipeline and verify authenticated recommend_portfolio {} returns persisted paper state and proposed share changes without jobs or holdings writes.
+- [x] 2.1 Deploy beta through the existing pipeline and verify authenticated recommend_portfolio {} returns persisted paper state and proposed share changes without jobs or holdings writes.
