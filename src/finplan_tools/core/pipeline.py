@@ -30,7 +30,7 @@ import logging
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
@@ -72,6 +72,7 @@ class Runtime:
     jobs: Callable[[float], Any]
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(timezone.utc))
     limits_override: ToolLimits | None = None
+    gateway_research_authorizer: Any = None
 
     def limits(self) -> ToolLimits:
         if self.limits_override is not None:
@@ -115,11 +116,13 @@ class Runtime:
             sess.client("lambda", region_name=settings.region, config=Config(connect_timeout=3, read_timeout=280, retries={"total_max_attempts": 1})),
             refs, environment=settings.environment, region=settings.region, account=values.get("FINPLAN_ACCOUNT_ID", ""),
         )
+        from .gateway_research_auth import GatewayResearchAuthorizer
         return cls(
             settings=settings,
             references=refs,
             platform=lambda timeout: PlatformClient(plan_t, ingest_t, timeout=timeout),
             jobs=lambda timeout: JobClient(job_t, timeout=timeout, strategy_client=strategy, classical_client=classical),
+            gateway_research_authorizer=GatewayResearchAuthorizer(refs, settings.region),
         )
 
 
@@ -259,6 +262,11 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
             raise ToolError(FORBIDDEN, "the request targets another environment than this tool", reason="environment_mismatch")
         if env == "prod" and spec.state_changing and inv.source != "gateway":
             raise ToolError(FORBIDDEN, "state-changing tools are not directly invocable in prod", reason="prod_direct_write")
+        if spec.name == "run_portfolio_research" and request.get("dry_run") is False and inv.source == "gateway":
+            if runtime.gateway_research_authorizer is None:
+                raise ToolError(FORBIDDEN, "paid research user verification is unavailable", reason="verified_user_token_required")
+            verified = runtime.gateway_research_authorizer.verify_context(context)
+            inv = replace(inv, identity=verified.identity, groups=verified.groups)
         if spec.authorize is not None:  # caller authorization, before any producer call
             spec.authorize(inv, request, tool_fields)
         # 6. dependency gating, then the tool itself

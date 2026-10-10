@@ -134,6 +134,12 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
         raise ValueError(f"unknown role class {role_class!r}")
     apis = apis or ProducerApis()
     kw = {"partition": partition, "region": region, "account": account}
+    references = tool_reference_names(env)
+    if role_class == "submitter":  # only the paid research target verifies a propagated token
+        references += [
+            f"/finplan/{env}/financeagent/agent/authorizer-metadata-ref",
+            f"/finplan/{env}/financeagent/agent/user-pool-ref",
+        ]
     groups = [f"/aws/lambda/{n.function_name(env, t)}" for t, e in sorted(CATALOG.items()) if e.role_class == role_class]
     st: list[dict[str, Any]] = [
         {"Sid": "PlatformReads", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.plan_id, apis.plan_stage, "GET", r, **kw) for r in PLATFORM_READ_ROUTES]},
@@ -146,7 +152,7 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
         st.append({"Sid": "PlanWrites", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.plan_id, apis.plan_stage, m, p, **kw) for m, p in PLAN_WRITER_ROUTES]})
         st.append({"Sid": "ProductionStrategy", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.job_id, apis.job_stage, m, p, **kw) for m, p in STRATEGY_ROUTES]})
     st += [
-        {"Sid": "ReadOwnEnvironmentReferences", "Effect": "Allow", "Action": ["ssm:GetParameter"], "Resource": [_param(p, **kw) for p in tool_reference_names(env)]},
+        {"Sid": "ReadOwnEnvironmentReferences", "Effect": "Allow", "Action": ["ssm:GetParameter"], "Resource": [_param(p, **kw) for p in references]},
         {"Sid": "OwnLogStreams", "Effect": "Allow", "Action": ["logs:CreateLogStream", "logs:PutLogEvents"], "Resource": [_arn("logs", f"log-group:{g}:*", **kw) for g in groups]},
         # ---- explicit denies (they hold even if an allow above were widened)
         {"Sid": "DenyExecutionRoutes", "Effect": "Deny", "Action": ["execute-api:Invoke"], "Resource": [_arn("execute-api", p, **kw) for p in EXECUTION_PATHS]},
