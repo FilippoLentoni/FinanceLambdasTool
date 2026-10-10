@@ -43,7 +43,7 @@ def test_digest_mismatch_fails(tmp_path):
 
 def test_tampered_wheel_fails(tmp_path):
     root = _copy_pin_tree(tmp_path)
-    wheel = next((root / "vendor" / "finplan-contracts").glob("*.whl"))
+    wheel = root / json.loads((root / "contracts-pin.json").read_text())["artifact"]
     wheel.write_bytes(wheel.read_bytes() + b"x")
     assert any("Digest mismatch" in p for p in check(root, check_installed=False))
 
@@ -70,7 +70,7 @@ def test_repin_is_one_command(tmp_path):
     root = _copy_pin_tree(tmp_path)
     src = tmp_path / "upstream"
     src.mkdir()
-    current = next((root / "vendor" / "finplan-contracts").glob("*.whl"))
+    current = root / json.loads((root / "contracts-pin.json").read_text())["artifact"]
     newer = src / "finplan_contracts-1.1.0-py3-none-any.whl"
     newer.write_bytes(current.read_bytes() + b"\0")
     (src / "finplan_contracts-0.9.0-py3-none-any.whl").write_bytes(b"old")
@@ -199,7 +199,7 @@ def test_catalog_matches_pinned_schemas():
     from finplan_tools.core.contracts import store
     from finplan_tools.core.registry import CATALOG
 
-    assert len(CATALOG) == 18
+    assert len(CATALOG) == 28
     for e in CATALOG.values():
         assert e.input_schema in store() and e.output_schema in store()
         assert e.prod_direct_test is (not e.state_changing)

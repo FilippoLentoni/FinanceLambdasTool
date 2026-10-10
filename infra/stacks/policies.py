@@ -112,6 +112,7 @@ def tool_reference_names(env: str) -> list[str]:
         f"/finplan/{env}/financialplanning/release/manifest",
         f"/finplan/{env}/financemodel/api/job-endpoint",
         f"/finplan/{env}/financemodel/api/strategy-function-ref",
+        f"/finplan/{env}/financemodel/api/classical-function-ref",
         f"/finplan/{env}/financemodel/release/manifest",
         n.own_ssm(env, "config", "tool-limits"),
     ]
@@ -155,13 +156,14 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
     if role_class == "reader":
         st.append({"Sid": "DenyNonReadCalls", "Effect": "Deny", "Action": ["execute-api:Invoke"], "Resource": [_arn("execute-api", f"*/*/{m}/*", **kw) for m in _WRITE_METHODS]})
     inference_arn = _arn("lambda", f"function:finplan-{env}-financemodel-job-api-handler-inference", **kw)
+    classical_arn = _arn("lambda", f"function:finplan-{env}-financemodel-job-api-handler-classical", **kw)
+    resources = [classical_arn, f"{classical_arn}:$LATEST"] if role_class in ("reader", "submitter") else []
     if role_class == "reader":
-        # An unqualified InvokeFunction request can be authorized against $LATEST by Lambda.
-        # Keep both exact resource forms; published versions and aliases remain denied.
-        inference_resources = [inference_arn, f"{inference_arn}:$LATEST"]
+        resources += [inference_arn, f"{inference_arn}:$LATEST"]
+    if resources:
         st += [
-            {"Sid": "InvokeFrozenStrategy", "Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": inference_resources},
-            {"Sid": "DenyOtherLambdaInvocations", "Effect": "Deny", "Action": ["lambda:InvokeFunction"], "NotResource": inference_resources},
+            {"Sid": "InvokeServingModels", "Effect": "Allow", "Action": ["lambda:InvokeFunction"], "Resource": resources},
+            {"Sid": "DenyOtherLambdaInvocations", "Effect": "Deny", "Action": ["lambda:InvokeFunction"], "NotResource": resources},
         ]
     else:
         st.append({"Sid": "DenyLambdaInvocations", "Effect": "Deny", "Action": ["lambda:InvokeFunction"], "Resource": "*"})

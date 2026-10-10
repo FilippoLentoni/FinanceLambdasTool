@@ -32,6 +32,10 @@ IDENTIFIER_FIELDS: dict[str, re.Pattern[str]] = {
     "input_snapshot_id": re.compile(rf"^snap_{_ULID}\Z"),
     "run_id": re.compile(rf"^run_{_ULID}\Z"),
     "model_version": re.compile(rf"^mv_{_ULID}\Z"),
+    "analysis_id": re.compile(r"^ca_[0-9a-f]{32}\Z"),
+    "previous_analysis_id": re.compile(r"^ca_[0-9a-f]{32}\Z"),
+    "current_analysis_id": re.compile(r"^ca_[0-9a-f]{32}\Z"),
+    "review_id": re.compile(r"^ca_[0-9a-f]{32}\Z"),
     "configuration_id": re.compile(r"^cfg_[0-9a-f]{64}\Z"),
 }
 _MAX_IDS_PER_FIELD = 5

@@ -22,10 +22,11 @@ __all__ = ["JobClient"]
 class JobClient:
     PRODUCER = "financemodel"
 
-    def __init__(self, transport: Transport | None, *, timeout: float = 15.0, strategy_client=None) -> None:
+    def __init__(self, transport: Transport | None, *, timeout: float = 15.0, strategy_client=None, classical_client=None) -> None:
         self.transport = transport
         self.timeout = timeout
         self.strategy_client = strategy_client
+        self.classical_client = classical_client
 
     def submit_job(self, body: Mapping[str, Any], meta: CallMeta) -> Any:
         """``POST /v1/jobs``; ``body['dry_run']`` true returns an estimate and no ``run_id``."""
@@ -56,3 +57,9 @@ class JobClient:
     def get_performance_evidence(self, body, meta):
         import json
         return call(self.transport,self.PRODUCER,"GET","v1/performance-evidence",meta,query={"request":json.dumps(dict(body),separators=(",",":"))},timeout=self.timeout)
+
+    def classical(self, operation, body, meta):
+        from ..core.errors import ToolError
+        if self.classical_client is None:
+            raise ToolError.dependency_unavailable("the traditional optimization service is unavailable")
+        return self.classical_client.call(operation, body, meta)
