@@ -1,11 +1,12 @@
 """Durable, sanitized tool receipts, independent of bounded CloudWatch summaries."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import re
 from collections.abc import Mapping
 
-from .contracts import contract_version
+from .contracts import contract_version, validate_document
 from .identity import caller_block
 from .transport import CallMeta
 
@@ -14,11 +15,37 @@ _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{1
 _PRIVATE_LOCATION = re.compile(r"s3://[^\s\"]+|arn:[a-z0-9-]*:[^\s\"]+|https?://[^\s\"]*amazonaws\.com[^\s\"]*", re.I)
 _SIGNED_URL = re.compile(r"https?://[^\s\"]*(?:X-Amz-|Signature=)[^\s\"]*", re.I)
 _ACTIVITY_METADATA = ("activity_event_id", "checksum", "event_kind", "recorded_at", "portfolio_id", "decision_id", "input_snapshot_id", "session_id", "correlation_id", "caller", "contract_version", "synthetic")
+_POINTER_KEYS = frozenset({"pointer", "json_pointer", "instance_pointer", "schema_pointer", "schema_path", "instancePath", "schemaPath"})
+
+
+def _pointer_segments(pointer):
+    """Archive RFC 6901 diagnostics without confusing them with filesystem paths.
+
+    Encode the raw UTF-8 segments, retaining empty segments and ~ escapes exactly.
+    Base64url also keeps arbitrary object keys from looking like storage locations.
+    The empty pointer has zero segments; '/' has one empty segment.
+    """
+    return {"representation": "json_pointer", "encoding": "base64url_utf8_segments",
+            "segments": [base64.urlsafe_b64encode(part.encode()).decode().rstrip("=") for part in pointer[1:].split("/")] if pointer else []}
 
 
 def sanitize(value):
     if isinstance(value, Mapping):
-        return {str(k): "<redacted>" if _SECRET_KEYS.search(str(k)) else sanitize(v) for k, v in value.items()}
+        pointer = next((v for k, v in value.items() if k in _POINTER_KEYS and isinstance(v, str) and (not v or v.startswith("/"))), None)
+        result = {}
+        for k, v in value.items():
+            key = str(k)
+            if _SECRET_KEYS.search(key):
+                result[key] = "<redacted>"
+            elif key in _POINTER_KEYS and isinstance(v, str) and (not v or v.startswith("/")):
+                result[key] = _pointer_segments(v)
+            elif key == "message" and pointer is not None and isinstance(v, str) and v.startswith((pointer or "/") + ":"):
+                # Pinned validation issues also prefix their message with the pointer.
+                prefix = pointer or "/"
+                result[key] = {"representation": "json_pointer_diagnostic", "pointer": _pointer_segments(prefix), "suffix": sanitize(v[len(prefix):])}
+            else:
+                result[key] = sanitize(v)
+        return result
     if isinstance(value, list):
         return [sanitize(v) for v in value]
     if isinstance(value, str):
@@ -62,7 +89,9 @@ def persist_tool_receipt(runtime, spec, invocation, cid, request, response, outc
             sources.append(source["portfolio_state"])
     for key in ("portfolio_id", "decision_id", "input_snapshot_id"):
         for source in reversed(sources):
-            if isinstance(source, Mapping) and source.get(key):
+            # Invalid caller IDs belong in the archived request, never in typed
+            # index fields: even failed validation must have a durable receipt.
+            if isinstance(source, Mapping) and source.get(key) and validate_document({key: source[key]}, "identifiers").valid:
                 body[key] = source[key]
                 break
     runtime.platform(10).record_agent_activity(body, meta)

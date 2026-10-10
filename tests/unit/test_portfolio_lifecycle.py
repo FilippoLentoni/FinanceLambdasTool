@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 from finplan_contracts.schemas import contracts_root
+from finplan_tools.core.activity import sanitize
+from finplan_tools.core.contracts import validate_document
 from finplan_tools.core.errors import ToolError
 from finplan_tools.handler import invoke
 from infra.stacks.policies import ProducerApis, role_class_policy
@@ -138,6 +140,58 @@ def test_activity_archive_redacts_nested_credentials_private_locations_and_prese
     assert 'amazonaws' not in json.dumps(body)
     # Explicit evidence archive does not recursively archive itself.
     assert len(platform.calls)==1
+
+
+def restore_archived_diagnostic(value):
+    if isinstance(value, dict):
+        if value.get('representation') == 'json_pointer':
+            assert value['encoding'] == 'base64url_utf8_segments'
+            parts = [base64.urlsafe_b64decode(s + '=' * (-len(s) % 4)).decode() for s in value['segments']]
+            return '/' + '/'.join(parts) if parts else ''
+        if value.get('representation') == 'json_pointer_diagnostic':
+            return restore_archived_diagnostic(value['pointer']) + value['suffix']
+        return {key: restore_archived_diagnostic(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [restore_archived_diagnostic(item) for item in value]
+    return value
+
+
+@pytest.mark.parametrize('pointer', ['', '/', '/explanation/type', '//items/0/', '/a~1b/~0/café/💹', '/arn:aws:s3:::bucket/s3:~1~1private'])
+def test_archived_pointer_segments_roundtrip_without_path_like_contract_values(offline, pointer):
+    platform = setup(offline)
+    original = {'pointer': pointer, 'message': (pointer or '/') + ': invalid value', 'schema_path': '/properties/items'}
+    args = {'event_kind': 'agent_turn', 'correlation_id': 'corr-pointer-roundtrip', 'idempotency_key': 'pointer-roundtrip', 'payload': original}
+    result = invoke('record_agent_activity', offline.event(args), None, offline.runtime)
+    assert result.get('activity_event_id'), result
+    saved = platform.calls[0][1][0]['payload']
+    assert saved['pointer']['representation'] == 'json_pointer'
+    assert saved['message']['representation'] == 'json_pointer_diagnostic'
+    assert restore_archived_diagnostic(saved) == original
+    assert sanitize(saved) == saved  # Agent and adapter sanitize the same evidence independently.
+    assert args['payload'] == original
+
+
+@pytest.mark.parametrize('arguments', [{'decision_id': 'invalid'}, {}, {'decision_id': PD, 'unexpected': 1}])
+def test_failed_request_archives_the_exact_source_error_and_keeps_public_json_pointers(offline, arguments):
+    platform = setup(offline)
+    offline.runtime.durable_activity_receipts = True
+    receipts = []
+
+    def archive(body, meta):
+        validation = validate_document(body, 'tools/record-agent-activity-request')
+        assert validation.valid, validation.to_dict()
+        assert body['correlation_id'] == meta.correlation_id
+        receipts.append(copy.deepcopy(body))
+        return fixture('record_agent_activity')
+
+    platform.record_agent_activity = archive
+    result = invoke('get_portfolio_decision', offline.event(arguments), None, offline.runtime)
+    assert result['code'] in ('INVALID_IDENTIFIER', 'VALIDATION_FAILED'), result
+    assert isinstance(result['details']['pointer'], str)
+    assert len(receipts) == 1
+    assert receipts[0].get('decision_id') in (None, PD)
+    assert receipts[0]['payload']['status'] == result['code']
+    assert restore_archived_diagnostic(receipts[0]['payload']['response']) == result
 
 
 def test_reader_only_post_exception_is_durable_evidence_endpoint():

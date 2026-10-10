@@ -40,6 +40,11 @@ Retries preserve the downstream idempotency key; the Platform also prevents perm
 All deployed adapters save sanitized successful/failed invocation receipts through the Platform
 activity API, excluding credentials and private grants. Explicit archive calls do not recursively
 archive themselves. A failed durable archive is reported rather than presenting an unarchived success.
+Archived validation pointers use a typed `json_pointer` object with `encoding=base64url_utf8_segments`.
+Decode each segment as unpadded base64url UTF-8, join with `/`, and prepend `/` when segments exist;
+zero segments represent the empty pointer. Raw RFC 6901 escapes and empty segments are preserved.
+Pointer-prefixed issue messages use `json_pointer_diagnostic` with that pointer and an exact `suffix`.
+This preserves diagnostics without mistaking them for storage paths; public error envelopes stay unchanged.
 Activity-history read receipts retain immutable event IDs/checksums, metadata and pagination instead
 of recursively copying previously archived payloads. Their originals remain durable and the direct
 MCP response still returns those full original records; other tools retain their sanitized outputs.
