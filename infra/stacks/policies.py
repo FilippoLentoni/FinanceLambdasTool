@@ -63,11 +63,11 @@ REGION = contract_iam.REGION
 ACCOUNT = contract_iam.ACCOUNT
 
 #: Platform read routes (method GET) the tools use (backends/platform.py).
-PLATFORM_READ_ROUTES = ("v1/plans/*", "v1/plan-versions/*", "v1/portfolios/*", "v1/snapshots/*", "v1/publications/*")
+PLATFORM_READ_ROUTES = ("v1/plans/*", "v1/plan-versions/*", "v1/portfolios/*", "v1/snapshots", "v1/snapshots/*", "v1/publications/*", "v1/portfolio-decisions/*", "v1/activity-events")
 #: FinanceModel job reads (``get_job_status``, ``get_job_result``).
 JOB_READ_ROUTES = ("v1/recommendations", "v1/performance-evidence", "v1/jobs/*",)
 #: plan-writer routes (D1).
-PLAN_WRITER_ROUTES = (("POST", "v1/plans/*/versions"), ("POST", "v1/plan-versions/*/validate"), ("POST", "v1/plans/*/publications"))
+PLAN_WRITER_ROUTES = (("POST", "v1/plans/*/versions"), ("POST", "v1/plan-versions/*/validate"), ("POST", "v1/plans/*/publications"), ("POST", "v1/portfolio-decisions/*/resolution"))
 #: FinanceModel production-strategy selection operations (plan-writer; contracts 1.1.0).
 STRATEGY_ROUTES = (("GET", "v1/production-strategy"), ("PUT", "v1/production-strategy"))
 #: SSM write actions explicitly denied on FinanceModel configuration (PST-04).
@@ -115,6 +115,7 @@ def tool_reference_names(env: str) -> list[str]:
         f"/finplan/{env}/financemodel/api/classical-function-ref",
         f"/finplan/{env}/financemodel/release/manifest",
         n.own_ssm(env, "config", "tool-limits"),
+        f"/finplan/{env}/financialplanning/config/research-plan-ref",
     ]
 
 
@@ -135,7 +136,7 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
     apis = apis or ProducerApis()
     kw = {"partition": partition, "region": region, "account": account}
     references = tool_reference_names(env)
-    if role_class == "submitter":  # only the paid research target verifies a propagated token
+    if role_class in ("submitter", "plan-writer"):  # paid research and paper resolution verify the propagated user token
         references += [
             f"/finplan/{env}/financeagent/agent/authorizer-metadata-ref",
             f"/finplan/{env}/financeagent/agent/user-pool-ref",
@@ -145,6 +146,7 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
         {"Sid": "PlatformReads", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.plan_id, apis.plan_stage, "GET", r, **kw) for r in PLATFORM_READ_ROUTES]},
         {"Sid": "JobReads", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.job_id, apis.job_stage, "GET", r, **kw) for r in JOB_READ_ROUTES]},
     ]
+    st.append({"Sid": "DurableActivityReceipts", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.plan_id, apis.plan_stage, "POST", "v1/activity-events", **kw)]})
     if role_class == "submitter":
         st.append({"Sid": "Ingestion", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.ingestion_id, apis.ingestion_stage, "POST", "v1/ingestions", **kw)]})
         st.append({"Sid": "JobSubmit", "Effect": "Allow", "Action": ["execute-api:Invoke"], "Resource": [_api(apis.job_id, apis.job_stage, "POST", "v1/jobs", **kw)]})
@@ -160,7 +162,7 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
         {"Sid": "DenyFinanceModelConfigWrites", "Effect": "Deny", "Action": list(CONFIG_WRITE_ACTIONS), "Resource": [_param(f"/finplan/{env}/financemodel/config", **kw), _param(f"/finplan/{env}/financemodel/config/*", **kw)]},
     ]
     if role_class == "reader":
-        st.append({"Sid": "DenyNonReadCalls", "Effect": "Deny", "Action": ["execute-api:Invoke"], "Resource": [_arn("execute-api", f"*/*/{m}/*", **kw) for m in _WRITE_METHODS]})
+        st.append({"Sid": "DenyNonReadCalls", "Effect": "Deny", "Action": ["execute-api:Invoke"], "NotResource": [_arn("execute-api", "*/*/GET/*", **kw), _api(apis.plan_id, apis.plan_stage, "POST", "v1/activity-events", **kw)]})
     inference_arn = _arn("lambda", f"function:finplan-{env}-financemodel-job-api-handler-inference", **kw)
     classical_arn = _arn("lambda", f"function:finplan-{env}-financemodel-job-api-handler-classical", **kw)
     resources = [classical_arn, f"{classical_arn}:$LATEST"] if role_class in ("reader", "submitter") else []
@@ -180,7 +182,9 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
             "Action": ["sagemaker:*", "s3:*", "dynamodb:*", "ssm:PutParameter", "ssm:DeleteParameter", "ssm:DeleteParameters", "ssm:LabelParameterVersion", "lambda:InvokeAsync", "iam:PassRole"],
             "Resource": "*",
         },
-        {"Sid": "DenyOtherEnvironments", "Effect": "Deny", "Action": "*", "Resource": _other_env_named(env, **kw)},
+        # Every tool role carries the environment permission boundary. Its identical
+        # other-environment deny is mandatory; duplicating that large ARN list here
+        # would exceed IAM's aggregate inline-policy quota as the catalog grows.
         *contract_boundaries.live_financial_deny_statements(),
     ]
     return {"Version": "2012-10-17", "Statement": st}

@@ -1,6 +1,6 @@
 # Selected strategy MCP tool
 
-`recommend_portfolio` is a read-only tool pinned to contracts 1.3.0.
+`recommend_portfolio` is a read-only recommendation tool pinned to contracts 1.5.0.
 
 Its input schema is `finance/v1/tools/recommend-portfolio-invocation-request`; the original 1.2
 explicit-only request schema remains unchanged.
@@ -19,7 +19,27 @@ so an older producer cannot silently receive unsupported default requests.
 
 The result remains advisory/paper, with indicative fractional quantities at the reference close.
 Rounding, transaction costs and execution price changes can affect executable quantities. There is
-no training, execution or strategy selection change; recommendations do not prove executed trades.
+no training or strategy selection change; recommendations do not prove executed trades. Saved-book
+responses include a durable `decision_id`; only a separately confirmed paper resolution updates holdings.
+
+Both MCP Gateways expose `get_portfolio_decision`, `list_portfolio_decisions`,
+`resolve_portfolio_decision`, `get_portfolio_history`, `list_market_snapshots`,
+`explain_portfolio_decision`, `compare_portfolio_decisions`, `evaluate_portfolio_decision`,
+`record_agent_activity` and `list_agent_activity`. Default history/snapshot reads return the latest
+three stored records. Generic explanation and performance tools take issued `decision_id` values
+from either model family; use them for accepted-book history rather than the legacy classical analysis path.
+
+Accept/reject requires the exact stored decision, source `expected_revision`, explicit
+`confirmed_by_user=true` and an `idempotency_key`. The resolution target on either Gateway must
+receive `X-Finplan-User-Token` with the human's public-client access token. The adapter verifies its
+signature/issuer/client/lifetime and signed viewer/researcher/plan_editor/plan_publisher membership;
+machine/direct-test markers cannot approve. Acceptance records simulated fractional fills at the
+issued reference prices, disclosed costs and one new revision. Rejection leaves holdings unchanged.
+Retries preserve the downstream idempotency key; the Platform also prevents permanent double application.
+
+All deployed adapters save sanitized successful/failed invocation receipts through the Platform
+activity API, excluding credentials and private grants. Explicit archive calls do not recursively
+archive themselves. A failed durable archive is reported rather than presenting an unarchived success.
 
 The adapter resolves `/finplan/<env>/financemodel/api/strategy-function-ref` and verifies that it
 names the expected function in the same environment, region and account. It invokes the strategy

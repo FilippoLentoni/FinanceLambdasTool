@@ -178,4 +178,4 @@ def test_public_auth_references_are_only_readable_by_same_environment_submitter(
             for name in ("authorizer-metadata-ref", "user-pool-ref"):
                 arn = "arn:aws:ssm:" + REGION + ":" + kw["account"] + ":parameter/finplan/" + env + "/financeagent/agent/" + name
                 allowed = evaluate(Request("ssm:GetParameter", arn), {"identity": policy}, boundary).allowed
-                assert allowed is (role == "submitter" and env == "beta")
+                assert allowed is (role in ("submitter", "plan-writer") and env == "beta")

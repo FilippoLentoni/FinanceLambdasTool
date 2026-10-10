@@ -53,7 +53,7 @@ def test_classical_call_preserves_math_evidence_and_passes_identity_headers(offl
     payload=json.loads(client.calls[0]['Payload'])
     assert payload['operation']=='recommend_classical_portfolio'
     assert payload['environment']=='beta' and payload['request']==request
-    assert payload['headers']['X-Finplan-Contract-Version']=='1.4.0'
+    assert payload['headers']['X-Finplan-Contract-Version']=='1.5.0'
     assert json.loads(payload['headers']['X-Finplan-Caller'])['channel']=='direct_test'
     assert offline.jobs.count()==0 and offline.platform.count()==0
 

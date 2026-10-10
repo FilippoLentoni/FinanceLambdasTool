@@ -73,6 +73,7 @@ class Runtime:
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(timezone.utc))
     limits_override: ToolLimits | None = None
     gateway_research_authorizer: Any = None
+    durable_activity_receipts: bool = False
 
     def limits(self) -> ToolLimits:
         if self.limits_override is not None:
@@ -123,6 +124,7 @@ class Runtime:
             platform=lambda timeout: PlatformClient(plan_t, ingest_t, timeout=timeout),
             jobs=lambda timeout: JobClient(job_t, timeout=timeout, strategy_client=strategy, classical_client=classical),
             gateway_research_authorizer=GatewayResearchAuthorizer(refs, settings.region),
+            durable_activity_receipts=True,
         )
 
 
@@ -228,6 +230,8 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
     ctx: ToolContext | None = None
     synthetic = False
     outcome, retryable = "OK", None
+    request: Any = {}
+    response: dict[str, Any] | None = None
     try:
         # 1. invocation source -> identity
         inv = resolve_invocation(event, context, environment=runtime.settings.environment)
@@ -239,11 +243,16 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
         if not isinstance(request, Mapping):
             raise ToolError.validation("the tool request must be a JSON object", pointer="")
         request = dict(request)
+        if spec.name == "record_agent_activity" and "payload" in request:
+            # Archive callers may include transport diagnostics inside an evidence payload.
+            # Redact these before schema validation as well as before producer transport.
+            from .activity import sanitize
+            request["payload"] = sanitize(request["payload"])
         synthetic = request.get("synthetic") is True
         # 2. contract major
         _check_contract_major(inv, request)
         # 3. storage-like inputs, before any other work
-        leaks = storage_input_problems(request)
+        leaks = storage_input_problems({k:v for k,v in request.items() if k != "payload"} if spec.name == "record_agent_activity" else request)
         if leaks:
             raise ToolError.validation("storage locations, URIs, ARNs and path-like values are not accepted; use a trusted artifact reference", pointer=leaks[0])
         if spec.pre_validate is not None:  # tool-specific checks of the raw request (no producer call)
@@ -262,7 +271,7 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
             raise ToolError(FORBIDDEN, "the request targets another environment than this tool", reason="environment_mismatch")
         if env == "prod" and spec.state_changing and inv.source != "gateway":
             raise ToolError(FORBIDDEN, "state-changing tools are not directly invocable in prod", reason="prod_direct_write")
-        if spec.name == "run_portfolio_research" and request.get("dry_run") is False and inv.source == "gateway":
+        if (spec.name == "run_portfolio_research" and request.get("dry_run") is False or spec.name == "resolve_portfolio_decision") and inv.source == "gateway":
             if runtime.gateway_research_authorizer is None:
                 raise ToolError(FORBIDDEN, "paid research user verification is unavailable", reason="verified_user_token_required")
             verified = runtime.gateway_research_authorizer.verify_context(context)
@@ -299,13 +308,26 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
         return response
     except ToolError as err:
         outcome, retryable = err.code, err.retryable
-        return _envelope(err, cid, synthetic)
+        response = _envelope(err, cid, synthetic)
+        return response
     except Exception:  # noqa: BLE001 - never leak a trace: full trace only in the log
         log.exception("unhandled tool failure (correlation_id=%s tool=%s)", cid, spec.name)
         err = ToolError.internal("unexpected failure")
         outcome, retryable = err.code, err.retryable
-        return _envelope(err, cid, synthetic)
+        response = _envelope(err, cid, synthetic)
+        return response
     finally:
+        if runtime.durable_activity_receipts and spec.name != "record_agent_activity":
+            from .activity import persist_tool_receipt
+            try:
+                persist_tool_receipt(runtime, spec, inv, cid, request, response, outcome)
+            except Exception:
+                log.exception("durable tool receipt failed (correlation_id=%s tool=%s)", cid, spec.name)
+                # Never report an unarchived successful decision. Idempotent write retries remain safe.
+                if outcome == "OK" and isinstance(response, dict):
+                    response.clear()
+                    response.update(_envelope(ToolError.dependency_unavailable("the durable activity archive is unavailable", producer=PRODUCER_PLATFORM), cid, synthetic))
+                    outcome = "DEPENDENCY_UNAVAILABLE"
         audit.emit(
             audit.audit_record(
                 correlation_id=cid,

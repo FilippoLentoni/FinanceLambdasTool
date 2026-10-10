@@ -1,9 +1,9 @@
 {
   "$comment": "Exact pin of the finplan-contracts package consumed by FinanceLambdasTool (task 1.2, contracts CS-04 consumer case). The digest is the SHA-256 of the exact vendored wheel (also recorded in uv.lock, which uv verifies on install). The wheel is the FinancialPlanning-built artifact copied byte for byte; once the CodeArtifact registry (/finplan/shared/financialplanning/contract/registry-ref) serves it, the registry asset must carry this same digest. Re-pin: scripts/check_contracts_pin.py --repin. 0.x pins are beta-only.",
   "package": "finplan-contracts",
-  "version": "1.4.0",
-  "artifact": "vendor/finplan-contracts/finplan_contracts-1.4.0-py3-none-any.whl",
-  "sha256": "0c5c44984afa45d462db1a8a064ab7fe8f81fe5873f8104544c29b57faaaeae9",
+  "version": "1.5.0",
+  "artifact": "vendor/finplan-contracts/finplan_contracts-1.5.0-py3-none-any.whl",
+  "sha256": "7f7cef40f8f1028e7e46abf6502e94d99c16cb241f5fc5832b3226c3d6d6e3fb",
   "source": "FinancialPlanning vendored wheel (built reproducibly from its contracts/python; FinanceLambdasTool never holds the contract sources)",
   "default_repin_source": "../FinancialPlanning/vendor/finplan-contracts",
   "published": false,

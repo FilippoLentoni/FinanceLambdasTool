@@ -47,7 +47,7 @@ def test_catalog_entry_and_pinned_schemas():
     load_all()
     e = CATALOG[TOOL]
     assert e.state_changing and e.role_class == "plan-writer" and e.producers == ("financemodel",)
-    assert e.min_producer_contract == "1.1.0" and contract_version() == "1.4.0"
+    assert e.min_producer_contract == "1.1.0" and contract_version() == "1.5.0"
     spec = get_tool(TOOL)
     assert spec is not None and spec.input_schema_id == schema_id("tools/production-strategy-request")
     assert spec.input_schema_id.endswith("/core/v1/tools/production-strategy-request.json")
