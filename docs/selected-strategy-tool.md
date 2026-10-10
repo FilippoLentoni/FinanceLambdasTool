@@ -40,6 +40,9 @@ Retries preserve the downstream idempotency key; the Platform also prevents perm
 All deployed adapters save sanitized successful/failed invocation receipts through the Platform
 activity API, excluding credentials and private grants. Explicit archive calls do not recursively
 archive themselves. A failed durable archive is reported rather than presenting an unarchived success.
+Activity-history read receipts retain immutable event IDs/checksums, metadata and pagination instead
+of recursively copying previously archived payloads. Their originals remain durable and the direct
+MCP response still returns those full original records; other tools retain their sanitized outputs.
 
 The adapter resolves `/finplan/<env>/financemodel/api/strategy-function-ref` and verifies that it
 names the expected function in the same environment, region and account. It invokes the strategy

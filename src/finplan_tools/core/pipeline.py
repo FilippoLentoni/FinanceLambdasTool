@@ -263,6 +263,11 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
         result = validate_document(request, spec.input_schema)
         if not result.valid:
             raise from_validation(result)
+        if spec.name == "record_agent_activity":
+            # The archived turn's correlation is the authenticated downstream transport
+            # correlation too. Gateway invocation metadata otherwise supplies a new ID,
+            # which the Platform correctly rejects as inconsistent evidence.
+            cid = request["correlation_id"]
         if spec.request_writes(request) and "idempotency_key" not in request:
             raise ToolError.validation("write tools require an idempotency_key", pointer="/idempotency_key")
         # 5. environment

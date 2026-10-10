@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import copy
+import base64
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -30,6 +32,9 @@ class Platform:
         return {'plan':{'portfolio_id':PF}}
     def __getattr__(self,name):
         def call(*args,**kwargs):
+            if name=='record_agent_activity':
+                # The real Platform rejects mismatched body and authenticated header IDs.
+                assert args[0]['correlation_id']==args[1].correlation_id
             self.calls.append((name,args,kwargs))
             if self.error and name!='record_agent_activity':
                 raise self.error
@@ -64,6 +69,14 @@ def test_snapshot_discovery_never_downloads_market_provider(offline):
     doc=invoke('list_market_snapshots',offline.event({}),None,offline.runtime)
     assert 'snapshots' in doc,doc
     assert platform.calls[0][2]=={'dataset_id':'finance/equity-etf-daily/research-universe','page_size':3}
+
+
+def test_activity_history_defaults_to_authoritative_saved_book(offline):
+    platform=setup(offline)
+    doc=invoke('list_agent_activity',offline.event({}),None,offline.runtime)
+    assert 'events' in doc,doc
+    assert platform.calls[0][0]=='get_plan'
+    assert platform.calls[1][2]=={'page_size':3,'portfolio_id':PF}
 
 
 def test_verified_human_resolution_forwards_hash_and_derived_idempotency(offline):
@@ -121,6 +134,7 @@ def test_activity_archive_redacts_nested_credentials_private_locations_and_prese
     assert body['payload']['Authorization']=='<redacted>'
     assert body['payload']['nested']['refresh_token']=='<redacted>'
     assert body['payload']['sources']==args['payload']['sources']
+    assert platform.calls[0][1][1].correlation_id==args['correlation_id']
     assert 'amazonaws' not in json.dumps(body)
     # Explicit evidence archive does not recursively archive itself.
     assert len(platform.calls)==1
@@ -162,3 +176,199 @@ def test_mandatory_boundary_preserves_cross_environment_denial_after_inline_dedu
                        ('s3:GetObject','arn:aws:s3:::finplan-'+other+'-financialplanning-snapshots-'+kw['account']+'/x')]
             for action,resource in resources:
                 assert not evaluate(Request(action,resource),{'identity':broad},boundary).allowed
+
+
+def test_repeated_activity_reads_archive_references_without_recursive_payload_growth(offline):
+    platform=setup(offline)
+    offline.runtime.durable_activity_receipts=True
+    base=fixture('list_agent_activity')['events'][0]
+    base['payload']={'narrative':'original financial evidence '+('x'*20000)}
+    base['checksum']='sha256:'+hashlib.sha256(json.dumps(base,sort_keys=True).encode()).hexdigest()
+    immutable_original=copy.deepcopy(base)
+    events=[base]
+    receipt_sizes=[]
+    pages=[]
+
+    def read(meta,**query):
+        page={'events':copy.deepcopy(list(reversed(events[-3:]))),'next_token':None,'contract_version':'1.5.0'}
+        pages.append(copy.deepcopy(page))
+        return page
+
+    def archive(body,meta):
+        assert body['correlation_id']==meta.correlation_id
+        receipt_sizes.append(len(json.dumps(body)))
+        event={k:copy.deepcopy(v) for k,v in body.items() if k!='idempotency_key'}
+        event.update(activity_event_id='act_'+str(len(events)).zfill(26),recorded_at='2026-01-09T15:00:00Z',contract_version='1.5.0',caller={'principal':'synthetic'})
+        event['checksum']='sha256:'+hashlib.sha256(json.dumps(event,sort_keys=True).encode()).hexdigest()
+        events.append(event)
+        return {'activity_event_id':event['activity_event_id']}
+
+    platform.list_agent_activity=read
+    platform.record_agent_activity=archive
+    for _ in range(40):
+        response=invoke('list_agent_activity',offline.event({'portfolio_id':PF,'limit':3}),None,offline.runtime)
+        assert response==pages[-1],response  # Public MCP payloads remain exact, full records.
+        retained=events[-1]['payload']['response']
+        assert retained['next_token']==response['next_token']
+        assert retained['evidence_representation']=='immutable_activity_references'
+        assert [(r['activity_event_id'],r['checksum']) for r in retained['events']]==[(r['activity_event_id'],r['checksum']) for r in response['events']]
+        assert all('payload' not in row for row in retained['events'])
+        assert receipt_sizes[-1]<7000
+    assert events[0]==immutable_original
+    assert max(receipt_sizes[-20:])-min(receipt_sizes[-20:])<100
+    assert len(json.dumps(pages[-1]))<24000
+
+
+@pytest.mark.parametrize('tool,key,id_key,payload_key',[
+    ('list_agent_activity','events','activity_event_id','payload'),
+    ('list_portfolio_decisions','decisions','decision_id','provenance'),
+    ('get_portfolio_history','history','decision_id','resolution'),
+    ('list_market_snapshots','snapshots','input_snapshot_id','quality_details'),
+])
+def test_large_history_pages_follow_native_cursors_without_loss_after_new_inserts(offline,tool,key,id_key,payload_key):
+    from finplan_tools.core.bounds import response_size
+    platform=setup(offline)
+    template=fixture(tool)
+    if key=='snapshots':
+        examples=(json.loads(p.read_text()) for p in (contracts_root()/'fixtures/input-snapshot/valid').glob('*.json'))
+        template[key]=[next(doc for doc in examples if doc['status']=='approved')]
+    prefix={'events':'act_','decisions':'pd_','history':'pd_','snapshots':'snap_'}[key]
+    original=[]
+    for i in range(8):
+        row=copy.deepcopy(template[key][0])
+        row[id_key]=prefix+str(i).zfill(26)
+        row.setdefault(payload_key,{})['evidence']='x'*24000
+        original.append(row)
+    records=copy.deepcopy(original)
+    producer_calls=[]
+
+    def native_cursor(row):
+        return base64.urlsafe_b64encode(json.dumps({'portfolio_id':PF,id_key:row[id_key]}).encode()).decode().rstrip('=')
+
+    def read(*args,**query):
+        producer_calls.append(copy.deepcopy(query))
+        token=query.get('next_token')
+        cursor=json.loads(base64.urlsafe_b64decode(token+'='*(-len(token)%4))) if token else None
+        if cursor:
+            assert cursor['portfolio_id']==PF and 't' not in cursor
+        eligible=sorted((r for r in records if not cursor or r[id_key]<cursor[id_key]),key=lambda r:r[id_key],reverse=True)
+        page=eligible[:query['page_size']]
+        return {**template,key:copy.deepcopy(page),'next_token':native_cursor(page[-1]) if len(eligible)>len(page) else None}
+
+    setattr(platform,tool,read)
+    request={'limit':8,**({'portfolio_id':PF} if key!='snapshots' else {})}
+    received=[]
+    for iteration in range(8):
+        response=invoke(tool,offline.event(request),None,offline.runtime)
+        assert key in response,response
+        assert response_size(response)<=65536
+        received.extend(response[key])
+        token=response['next_token']
+        if not token:
+            break
+        # Newer records must not shift the continuation offset or be replayed.
+        newer=copy.deepcopy(original[0])
+        newer[id_key]=prefix+str(100+iteration).zfill(26)
+        records.append(newer)
+        request['next_token']=token
+    else:
+        pytest.fail('history pagination did not terminate')
+    assert received==list(reversed(original))
+    assert len({row[id_key] for row in received})==len(original)
+    assert any(query['page_size']==1 for query in producer_calls)
+
+
+@pytest.mark.parametrize('tool,key',[
+    ('get_portfolio_history','history'),('list_portfolio_decisions','decisions'),
+    ('list_market_snapshots','snapshots'),('list_agent_activity','events'),
+])
+def test_all_lifecycle_lists_return_native_producer_cursors_without_wrapping(offline,tool,key):
+    platform=setup(offline)
+    token=base64.urlsafe_b64encode(json.dumps({'portfolio_id':PF,'record_id':'immutable-record'}).encode()).decode().rstrip('=')
+    doc=fixture(tool)
+    doc['next_token']=token
+    calls=[]
+    def read(*args,**query):
+        calls.append(query)
+        return copy.deepcopy(doc)
+    setattr(platform,tool,read)
+    request={'next_token':token}
+    if tool!='list_market_snapshots':
+        request['portfolio_id']=PF
+    result=invoke(tool,offline.event(request),None,offline.runtime)
+    assert result==doc
+    assert calls[0]['next_token']==token
+
+
+def test_lifecycle_history_rejects_obsolete_tool_offset_token_before_producer(offline):
+    from finplan_tools.core.bounds import wrap_token
+    platform=setup(offline)
+    token=wrap_token(tool='list_agent_activity',environment='beta',offset=2)
+    result=invoke('list_agent_activity',offline.event({'portfolio_id':PF,'next_token':token}),None,offline.runtime)
+    assert result['code']=='VALIDATION_FAILED' and not platform.calls
+
+
+def test_oversized_activity_payload_reassembles_exactly_and_resumes_older_records(offline):
+    from finplan_tools.core.bounds import response_size
+    platform=setup(offline)
+    offline.runtime.durable_activity_receipts=True
+    template=fixture('list_agent_activity')
+    original=copy.deepcopy(template['events'][0])
+    original['payload']={'narrative':'Market evidence € 🧪 "quoted"\n'*8000,'tools':[{'result':{'weights':[.2,.3,.5]}}]}
+    older=copy.deepcopy(template['events'][0])
+    older['activity_event_id']='act_'+('0'*25)+'1'
+    original_id=original['activity_event_id']
+    native=base64.urlsafe_b64encode(json.dumps({'portfolio_id':PF,'activity_event_id':original_id}).encode()).decode().rstrip('=')
+    calls=[]
+    def read(meta,**query):
+        calls.append(copy.deepcopy(query))
+        token=query.get('next_token')
+        if token and token.startswith('ae1_'):
+            state=json.loads(base64.urlsafe_b64decode(token[4:]+'='*(-len(token[4:])%4)))
+            assert state=={'activity_event_id':original_id} and query['portfolio_id']==PF
+            return {**template,'events':[copy.deepcopy(original)],'next_token':None}
+        if token:
+            assert token==native
+            return {**template,'events':[copy.deepcopy(older)],'next_token':None}
+        return {**template,'events':[copy.deepcopy(original)]+([copy.deepcopy(older)] if query['page_size']>1 else []),'next_token':native if query['page_size']==1 else None}
+    platform.list_agent_activity=read
+    request={'portfolio_id':PF,'limit':3}
+    fragments=[]
+    offset=0
+    first_token=None
+    for _ in range(30):
+        result=invoke('list_agent_activity',offline.event(request),None,offline.runtime)
+        assert 'events' in result,result
+        assert response_size(result)<=65536
+        event=result['events'][0]
+        if event['activity_event_id']==older['activity_event_id']:
+            assert event==older and result['next_token'] is None
+            break
+        assert event['activity_event_id']==original_id and event['checksum']==original['checksum']
+        payload=event['payload']
+        assert payload['representation']=='chunked_immutable_json'
+        assert payload['offset']==offset
+        offset=payload['end_offset']
+        fragments.append(payload['fragment'])
+        receipt=platform.calls[-1][1][0]['payload']['response']['events'][0]
+        assert 'payload' not in receipt and 'fragment' not in receipt['summary']
+        assert receipt['summary']['payload_checksum']==payload['payload_checksum']
+        assert receipt['summary']['offset']==payload['offset']
+        request['next_token']=result['next_token']
+        first_token=first_token or result['next_token']
+    else:
+        pytest.fail('activity payload chunks did not terminate')
+    raw=''.join(fragments).encode('utf-8')
+    assert json.loads(raw)==original['payload']
+    assert offset==payload['total']==len(raw)
+    assert payload['payload_checksum']=='sha256:'+hashlib.sha256(raw).hexdigest()
+    assert len(fragments)>2 and any(c.get('next_token','').startswith('ae1_') for c in calls)
+    # A valid chunk cursor cannot be reused for another portfolio or session.
+    count=len(calls)
+    wrong=invoke('list_agent_activity',offline.event({'session_id':'other-session','next_token':first_token}),None,offline.runtime)
+    assert wrong['code']=='VALIDATION_FAILED' and len(calls)==count
+    # Even if an unexpected storage mutation retains the old object checksum,
+    # the independently verified canonical payload checksum detects the change.
+    original['payload']['narrative']='changed'
+    mismatch=invoke('list_agent_activity',offline.event({'portfolio_id':PF,'next_token':first_token}),None,offline.runtime)
+    assert mismatch['code']=='CONFLICT'
