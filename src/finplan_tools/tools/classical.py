@@ -13,6 +13,9 @@ def _paid(request):
     return request.get("dry_run") is False
 
 
+PAID_RESEARCH_TOOLS = frozenset({"run_portfolio_research", "run_recursive_improvement"})
+
+
 def _authorize_research(invocation, request, tool_fields):
     if not _paid(request):
         return
@@ -40,8 +43,13 @@ def _invoke(ctx, request):
     down = dict(request)
     if "idempotency_key" in down:
         down = ctx.downstream_body(down)
-    if operation == "run_portfolio_research" and _paid(request):
+    if operation in PAID_RESEARCH_TOOLS and _paid(request):
         estimate = producer_doc(ctx.jobs.classical(operation, {**down, "dry_run": True}, ctx.meta), "research estimate")
+        if operation == "run_recursive_improvement" and estimate.get("state") != "awaiting_experiment_approval":
+            # Running/stopped/completed cycles are evidence reads. There is no cost
+            # estimate to authorize and no reason to call the mutation path again.
+            _validate_reference(estimate)
+            return estimate
         cost = producer_doc(estimate.get("cost_estimate"), "research cost estimate")
         check_tool_budget(cost, ctx.limits)
         amount = cost.get("estimated_usd_upper_bound")
@@ -57,7 +65,7 @@ def _invoke(ctx, request):
 _DESCRIPTIONS = {
     "explain_portfolio_decision": "Explain an immutable PPO or traditional decision_id using its frozen issued inputs. Traditional decisions use objective counterfactuals/Shapley; PPO reports policy diagnostics and truthful attribution limits. Does not rerun or accept a new recommendation.",
     "compare_portfolio_decisions": "Compare previous_decision_id and current_decision_id from durable recommendation history, including input snapshots, holdings revisions, targets and strategy identity. Traditional comparable decisions support grouped Shapley; PPO or cross-family comparisons expose descriptive changes and limitations.",
-    "evaluate_portfolio_decision": "Evaluate a stored decision against later approved observed prices, saved paper revisions and recorded simulated fills. Distinguish simulated allocation, accepted paper actuals and unavailable broker actuals/calibrated forecasts. Save discrepancy evidence for recurring review.",
+    "evaluate_portfolio_decision": "Evaluate a stored decision against later approved observed prices, saved paper revisions and simulated fills. Separate daily attribution from the declared strategy objective and horizon; preserve frozen sequential-policy replay, same-cost controls, partial windows and unavailable evidence. A short loss or one realized path does not establish policy failure or optimality. Save discrepancy evidence for recurring review.",
     "recommend_classical_portfolio": "Generate and save a traditional portfolio optimization recommendation using min_variance (default), mean_variance or cvar. Uses the saved paper holdings and latest approved completed market snapshot unless explicit identifiers/date are supplied. Returns proposed share changes, input provenance and immutable analysis_id; no trades or holdings updates.",
     "explain_classical_recommendation": "Explain a stored classical recommendation by analysis_id, optionally for one instrument. Uses the frozen optimization inputs, objective versus a keep-holding counterfactual and grouped Shapley attribution. Returns immutable reproducible evidence; attribution describes this model, not market causality.",
     "compare_classical_plans": "Compare two immutable traditional recommendation analyses by previous_analysis_id/current_analysis_id. Attribute changes in allocations to grouped market, holdings and model-setting inputs with Shapley, retaining both snapshots and model provenance.",
@@ -68,6 +76,7 @@ _DESCRIPTIONS = {
     "research_market_events": "Research dated public market/news metadata for a stored portfolio analysis, optionally within a bounded date range/query. Return source URLs, headlines, publication dates and provenance as context, with unavailable sources and causal uncertainty explicit. Does not claim headlines caused a stock move.",
     "submit_portfolio_feedback": "Store bounded user feedback against an immutable portfolio analysis for later weekly research and stakeholder audit. Requires analysis_id, text and idempotency_key. Does not change holdings, investment plans or deployed models.",
     "run_portfolio_research": "Estimate or launch a bounded sandbox experiment proposed by a stored research review. dry_run defaults true. Paid launch requires an authorized experiment submitter, confirmed_by_user=true and idempotency_key; USD 0.50 maximum and one job per week enforced by producer. Never promotes a strategy or executes trades.",
+    "run_recursive_improvement": "Create or resume a persisted portfolio improvement cycle: review horizon evidence and feedback, propose a sandbox experiment, retrieve job/result lineage and recommend the next bounded iteration. dry_run defaults true; paid CPU launch requires a verified researcher, confirmed_by_user=true and idempotency_key, at most USD 0.50/week and USD 2/month. At most three iterations, no automatic strategy activation. Returns honest Qwen swarm/Jev capability status and stopping reasons.",
 }
 
 for _name, _description in _DESCRIPTIONS.items():
@@ -76,6 +85,6 @@ for _name, _description in _DESCRIPTIONS.items():
         description=_description,
         list_key="analyses" if _name == "list_classical_analyses" else None,
         grant_pointers=tuple(f"/sources/{index}/url" for index in range(50)),
-        writes=_paid if _name == "run_portfolio_research" else None,
-        authorize=_authorize_research if _name == "run_portfolio_research" else None,
+        writes=_paid if _name in PAID_RESEARCH_TOOLS else None,
+        authorize=_authorize_research if _name in PAID_RESEARCH_TOOLS else None,
     )(_invoke)

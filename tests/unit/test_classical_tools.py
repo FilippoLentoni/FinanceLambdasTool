@@ -13,6 +13,7 @@ from finplan_contracts.schemas import contracts_root
 from finplan_tools.backends.classical import ClassicalLambdaClient
 from finplan_tools.backends.jobs import JobClient
 from finplan_tools.core.errors import ToolError
+from finplan_tools.core.contracts import contract_version
 from finplan_tools.core.transport import CallMeta
 from finplan_tools.tools.classical import _authorize_research
 from infra.stacks.policies import role_class_policy
@@ -53,7 +54,7 @@ def test_classical_call_preserves_math_evidence_and_passes_identity_headers(offl
     payload=json.loads(client.calls[0]['Payload'])
     assert payload['operation']=='recommend_classical_portfolio'
     assert payload['environment']=='beta' and payload['request']==request
-    assert payload['headers']['X-Finplan-Contract-Version']=='1.5.0'
+    assert payload['headers']['X-Finplan-Contract-Version']==contract_version()
     assert json.loads(payload['headers']['X-Finplan-Caller'])['channel']=='direct_test'
     assert offline.jobs.count()==0 and offline.platform.count()==0
 

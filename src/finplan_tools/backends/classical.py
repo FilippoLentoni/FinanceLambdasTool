@@ -15,7 +15,7 @@ class ClassicalLambdaClient:
         self.environment, self.region, self.account = environment, region, account
 
     def call(self, operation, body, meta):
-        allowed = {"explain_portfolio_decision", "compare_portfolio_decisions", "evaluate_portfolio_decision", "recommend_classical_portfolio", "explain_classical_recommendation", "compare_classical_plans", "evaluate_classical_performance", "get_classical_analysis", "list_classical_analyses", "research_portfolio_models", "research_market_events", "run_portfolio_research", "submit_portfolio_feedback"}
+        allowed = {"explain_portfolio_decision", "compare_portfolio_decisions", "evaluate_portfolio_decision", "recommend_classical_portfolio", "explain_classical_recommendation", "compare_classical_plans", "evaluate_classical_performance", "get_classical_analysis", "list_classical_analyses", "research_portfolio_models", "research_market_events", "run_portfolio_research", "run_recursive_improvement", "submit_portfolio_feedback"}
         if operation not in allowed:
             raise ToolError.validation("unknown classical operation")
         ref = self.references.get("financemodel", "api", "classical-function-ref")

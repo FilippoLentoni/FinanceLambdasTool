@@ -276,7 +276,7 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
             raise ToolError(FORBIDDEN, "the request targets another environment than this tool", reason="environment_mismatch")
         if env == "prod" and spec.state_changing and inv.source != "gateway":
             raise ToolError(FORBIDDEN, "state-changing tools are not directly invocable in prod", reason="prod_direct_write")
-        if (spec.name == "run_portfolio_research" and request.get("dry_run") is False or spec.name == "resolve_portfolio_decision") and inv.source == "gateway":
+        if (spec.name in {"run_portfolio_research", "run_recursive_improvement"} and request.get("dry_run") is False or spec.name == "resolve_portfolio_decision") and inv.source == "gateway":
             if runtime.gateway_research_authorizer is None:
                 raise ToolError(FORBIDDEN, "paid research user verification is unavailable", reason="verified_user_token_required")
             verified = runtime.gateway_research_authorizer.verify_context(context)

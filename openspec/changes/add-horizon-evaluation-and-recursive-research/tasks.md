@@ -1,0 +1,3 @@
+- [x] 1. Add bounded recursive research adapter, registry and verified gateway identity handling.
+- [x] 2. Preserve objective-horizon evaluation evidence and verify paid preflight, authorization and dry-run behavior.
+- [x] 3. Validate contract/pipeline compatibility and record integration handoff.

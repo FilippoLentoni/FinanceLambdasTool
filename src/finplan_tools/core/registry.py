@@ -113,6 +113,7 @@ CATALOG: dict[str, CatalogEntry] = {
         CatalogEntry("research_market_events", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
         CatalogEntry("submit_portfolio_feedback", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
         CatalogEntry("run_portfolio_research", True, "submitter", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("run_recursive_improvement", True, "submitter", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.6.0"),
         CatalogEntry("get_portfolio_history", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.5.0"),
         CatalogEntry("list_portfolio_decisions", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.5.0"),
         CatalogEntry("get_portfolio_decision", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.5.0"),
