@@ -1,6 +1,7 @@
 """Traditional optimization, immutable explanation evidence and bounded research adapters."""
 from __future__ import annotations
 
+from math import isfinite
 from urllib.parse import urlparse
 
 from ..core.budget import check_tool_budget
@@ -38,6 +39,25 @@ def _validate_reference(doc):
             raise ToolError.internal("the producer returned an invalid public evidence citation")
 
 
+def _benchmark_category(estimate):
+    """Recognize only a typed, matching benchmark proposal, never a free-text exemption."""
+    from finplan_contracts.validate import validate
+
+    proposal = estimate.get("proposed_experiment") or {}
+    tool = proposal.get("tool_request") or {}
+    arguments = tool.get("arguments") or {}
+    family = arguments.get("job_type")
+    expected = {"swarm_mode_a": ("qwen_swarm", "gpu"), "jev_backtest": ("jev", "cpu_research")}.get(family)
+    if not expected or tool.get("name") != "submit_experiment" or proposal.get("job_type") != family:
+        return None
+    strategy, category = expected
+    if arguments.get("purpose") != "research" or arguments.get("dry_run") is not True or (arguments.get("configuration") or {}).get("payload", {}).get("strategy") != strategy:
+        return None
+    if proposal.get("budget_category") != category or (estimate.get("cost_estimate") or {}).get("budget_category") != category:
+        return None
+    return category if validate(arguments, "tools/submit-experiment-request").valid else None
+
+
 def _invoke(ctx, request):
     operation = ctx.spec.name
     down = dict(request)
@@ -45,7 +65,7 @@ def _invoke(ctx, request):
         down = ctx.downstream_body(down)
     if operation in PAID_RESEARCH_TOOLS and _paid(request):
         estimate = producer_doc(ctx.jobs.classical(operation, {**down, "dry_run": True}, ctx.meta), "research estimate")
-        if operation == "run_recursive_improvement" and estimate.get("state") != "awaiting_experiment_approval":
+        if operation == "run_recursive_improvement" and (estimate.get("state") != "awaiting_experiment_approval" or estimate.get("job")):
             # Running/stopped/completed cycles are evidence reads. There is no cost
             # estimate to authorize and no reason to call the mutation path again.
             _validate_reference(estimate)
@@ -53,7 +73,10 @@ def _invoke(ctx, request):
         cost = producer_doc(estimate.get("cost_estimate"), "research cost estimate")
         check_tool_budget(cost, ctx.limits)
         amount = cost.get("estimated_usd_upper_bound")
-        if not isinstance(amount, (int, float)) or isinstance(amount, bool) or not 0 <= amount <= .5:
+        benchmark = operation == "run_recursive_improvement" and _benchmark_category(estimate)
+        if not isinstance(amount, (int, float)) or isinstance(amount, bool) or not isfinite(amount) or amount < 0:
+            raise ToolError(BUDGET_EXCEEDED, "research estimate must be a finite nonnegative amount")
+        if not benchmark and amount > .5:
             raise ToolError(BUDGET_EXCEEDED, "weekly research estimate exceeds the USD 0.50 hard cap", limit_usd=.5)
     doc = producer_doc(ctx.jobs.classical(operation, down, ctx.meta), "classical analysis")
     _validate_reference(doc)
@@ -76,7 +99,7 @@ _DESCRIPTIONS = {
     "research_market_events": "Research dated public market/news metadata for a stored portfolio analysis, optionally within a bounded date range/query. Return source URLs, headlines, publication dates and provenance as context, with unavailable sources and causal uncertainty explicit. Does not claim headlines caused a stock move.",
     "submit_portfolio_feedback": "Store bounded user feedback against an immutable portfolio analysis for later weekly research and stakeholder audit. Requires analysis_id, text and idempotency_key. Does not change holdings, investment plans or deployed models.",
     "run_portfolio_research": "Estimate or launch a bounded sandbox experiment proposed by a stored research review. dry_run defaults true. Paid launch requires an authorized experiment submitter, confirmed_by_user=true and idempotency_key; USD 0.50 maximum and one job per week enforced by producer. Never promotes a strategy or executes trades.",
-    "run_recursive_improvement": "Create or resume a persisted portfolio improvement cycle: review horizon evidence and feedback, propose a sandbox experiment, retrieve job/result lineage and recommend the next bounded iteration. dry_run defaults true; paid CPU launch requires a verified researcher, confirmed_by_user=true and idempotency_key, at most USD 0.50/week and USD 2/month. At most three iterations, no automatic strategy activation. Returns honest Qwen swarm/Jev capability status and stopping reasons.",
+    "run_recursive_improvement": "Create or resume a persisted portfolio improvement cycle: review horizon evidence and feedback, propose a sandbox experiment, retrieve job/result lineage and recommend the next bounded iteration. dry_run defaults true; paid launch requires a verified researcher, confirmed_by_user=true and idempotency_key. Ordinary CPU research is capped at USD 0.50/week and USD 2/month; typed Qwen/Jev benchmarks retain their sandbox category limits and compute/vendor approval. At most three iterations, no automatic strategy activation. Returns honest Qwen swarm/Jev capability status and stopping reasons.",
 }
 
 for _name, _description in _DESCRIPTIONS.items():

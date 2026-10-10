@@ -67,6 +67,63 @@ def test_recursive_paid_preflight_derives_same_key_and_launches_once(offline, in
     assert payloads[1]["idempotency_key"].startswith("lt_")
 
 
+def benchmark_evidence(family="swarm_mode_a", amount=1.):
+    import json
+    document = recursive_evidence()
+    request = json.loads((contracts_root()/"fixtures/tools/submit-experiment-request/valid/research.json").read_text())
+    request.update(job_type=family, dry_run=True, purpose="research")
+    request["configuration"]["payload"].update(strategy="qwen_swarm" if family == "swarm_mode_a" else "jev", objective="llm_benchmark")
+    category = "gpu" if family == "swarm_mode_a" else "cpu_research"
+    document["proposed_experiment"] = {"job_type": family, "budget_category": category, "tool_request": {"name": "submit_experiment", "arguments": request}}
+    document["cost_estimate"] = {**evidence("research_run")["cost_estimate"], "estimated_usd_upper_bound": amount, "budget_category": category}
+    return document
+
+
+@pytest.mark.parametrize("family,amount", [("swarm_mode_a", 1.), ("jev_backtest", .75)])
+def test_typed_benchmark_uses_existing_category_cap_and_same_cycle_paid_path(offline, invoke, family, amount):
+    document = benchmark_evidence(family, amount)
+    client = Client(document)
+    wire(offline, client)
+    result = invoke(offline, "run_recursive_improvement", {"cycle_id": AID, "dry_run": False, "confirmed_by_user": True, "idempotency_key": "benchmark-cycle-test"})
+    assert "code" not in result, result
+    import json
+    calls = [json.loads(row["Payload"]) for row in client.calls]
+    assert len(calls) == 2 and all(call["operation"] == "run_recursive_improvement" for call in calls)
+    assert all(call["request"]["cycle_id"] == AID for call in calls)
+    assert calls[0]["request"]["dry_run"] is True and calls[1]["request"]["dry_run"] is False
+
+
+@pytest.mark.parametrize("defect", ["strategy", "family", "category", "invalid_request", "over_category_cap"])
+def test_invalid_benchmark_cannot_escape_research_caps(offline, invoke, defect):
+    document = benchmark_evidence()
+    proposal = document["proposed_experiment"]
+    if defect == "strategy":
+        proposal["tool_request"]["arguments"]["configuration"]["payload"]["strategy"] = "ppo"
+    elif defect == "family":
+        proposal["job_type"] = "jev_backtest"
+    elif defect == "category":
+        document["cost_estimate"]["budget_category"] = "cpu_research"
+    elif defect == "invalid_request":
+        proposal["tool_request"]["arguments"]["input_snapshot_id"] = "unknown"
+    else:
+        document["cost_estimate"]["estimated_usd_upper_bound"] = 5.01
+    client = Client(document)
+    wire(offline, client)
+    result = invoke(offline, "run_recursive_improvement", {"cycle_id": AID, "dry_run": False, "confirmed_by_user": True, "idempotency_key": "benchmark-cycle-test"})
+    assert result["code"] == "BUDGET_EXCEEDED", result
+    assert len(client.calls) == 1
+
+
+def test_existing_gpu_approval_job_is_readonly_without_another_paid_call(offline, invoke):
+    document = benchmark_evidence()
+    document["job"] = {"run_id": "run_01JA2B3C4D5E6F7G8H9JKMNPQR", "state": "awaiting_approval"}
+    document.pop("cost_estimate")
+    client = Client(document)
+    wire(offline, client)
+    result = invoke(offline, "run_recursive_improvement", {"cycle_id": AID, "dry_run": False, "confirmed_by_user": True, "idempotency_key": "benchmark-cycle-test"})
+    assert result == document and len(client.calls) == 1
+
+
 @pytest.mark.parametrize("state", ["experiment_running", "proposal_ready", "stopped"])
 def test_resuming_non_launchable_cycle_returns_evidence_without_cost_or_second_call(offline, invoke, state):
     document = {**recursive_evidence(), "state": state}
