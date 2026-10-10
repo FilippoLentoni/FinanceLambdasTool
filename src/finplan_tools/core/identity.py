@@ -30,9 +30,10 @@ invocation source, never from the request:
 * ``direct_test`` (the environment's single direct-test principal, the project owner) and ``ci_test``
   (this repo's pipeline stage role) act for the project owner, who holds ``plan_publisher``. In prod
   neither may invoke a state-changing tool (Lambda grants and the pipeline's prod check).
-* Gateway callers have NO verified groups until the Gateway-to-Lambda caller propagation is decided
-  (FinanceAgent FA-OQ-2 / LT-OQ-1, CONTRACT GAP-2): group-gated actions fail closed with
-  ``FORBIDDEN`` through the Gateway. Only :mod:`finplan_tools.core.gateway` changes when it closes.
+* Gateway callers have no verified groups by default. The paid ``run_portfolio_research`` path
+  verifies its transport-only Cognito access token with the pinned same-environment issuer/JWKS
+  before replacing this aggregate identity with a hashed subject and signed groups. All other
+  group-gated Gateway actions retain their existing fail-closed behavior.
 """
 
 from __future__ import annotations
