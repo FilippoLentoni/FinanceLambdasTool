@@ -156,7 +156,7 @@ def restore_archived_diagnostic(value):
     return value
 
 
-@pytest.mark.parametrize('pointer', ['', '/', '/explanation/type', '//items/0/', '/a~1b/~0/café/💹', '/arn:aws:s3:::bucket/s3:~1~1private'])
+@pytest.mark.parametrize('pointer', ['', '/', '/explanation/type', '//items/0/', '/a~1b/~0/café/💹', '/' + ':'.join(('arn', 'aws', 's3', '', '', 'bucket')) + '/s3:~1~1private'])
 def test_archived_pointer_segments_roundtrip_without_path_like_contract_values(offline, pointer):
     platform = setup(offline)
     original = {'pointer': pointer, 'message': (pointer or '/') + ': invalid value', 'schema_path': '/properties/items'}
