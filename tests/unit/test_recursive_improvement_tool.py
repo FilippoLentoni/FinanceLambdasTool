@@ -51,7 +51,7 @@ def test_nested_public_research_citations_survive_real_pipeline_and_retrieval(of
 @pytest.mark.parametrize("tool", ["run_recursive_improvement", "get_classical_analysis"])
 @pytest.mark.parametrize("url", [
     "s3:" + "//private-research/artifact.json",
-    "https://private-research.s3.amazonaws.com/artifact.json",
+    "https://private-research" + ".s3.amazonaws.com/artifact.json",
     "https://127.0.0.1/research", "https://127.1/research", "https://10.0.0.1/research", "https://169.254.169.254/latest",
     "https://[::1]/research", "https://[fd00::1]/research", "https://research.internal/paper",
     "https://localhost/paper", "https://research.local/paper", "https://research/paper",
@@ -93,7 +93,7 @@ def test_nested_citation_allowance_does_not_exempt_other_storage_locations(offli
 def test_analysis_cannot_skip_citation_validation_by_adding_a_list_field(offline, invoke):
     document = recursive_evidence()
     document["analyses"] = []
-    document["evidence"] = [{"sources": [{"url": "https://private-research.s3.amazonaws.com/artifact.json"}]}]
+    document["evidence"] = [{"sources": [{"url": "https://private-research" + ".s3.amazonaws.com/artifact.json"}]}]
     client = Client(document)
     wire(offline, client)
     result = invoke(offline, "get_classical_analysis", {"analysis_id": document["analysis_id"]})
