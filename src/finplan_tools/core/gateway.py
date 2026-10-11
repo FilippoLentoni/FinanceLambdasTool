@@ -9,8 +9,9 @@ only:
 * ``context.client_context.custom`` carries Gateway metadata, including
   ``bedrockAgentCoreToolName`` (``<target>___<tool>``).
 
-No end-user identity is taken from the Gateway until LT-OQ-1 closes: every Gateway caller in an
-environment shares the identity ``gateway:<env>`` (design Risks).
+This parser assigns only the aggregate ``gateway:<env>`` identity. Paid classical research
+separately verifies the allowlisted transport JWT in ``core.gateway_research_auth`` before any
+producer call; tool arguments and this parser never supply trusted user groups.
 """
 
 from __future__ import annotations

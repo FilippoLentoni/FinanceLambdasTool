@@ -122,7 +122,10 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - CodeBuild 
     from scripts.predeploy import PredeployError, write_variables
 
     session = boto3.session.Session(region_name=info.region)
-    ssm = ssm_client(info.region, boto_session=session)
+    # Release publication writes every tool reference in a burst. Standard-tier SSM can throttle
+    # this even with the normal runtime retry bound; keep the larger bound pipeline-only.
+    retry_options = {"total_max_attempts": 10} if args.action == "publish" else {}
+    ssm = ssm_client(info.region, boto_session=session, **retry_options)
     if args.action == "predeploy":
         try:
             account = session.client("sts").get_caller_identity()["Account"]

@@ -53,6 +53,7 @@ ROLE_CLASSES = ("reader", "submitter", "plan-writer")
 PRODUCER_PLATFORM = "financialplanning"
 PRODUCER_MODEL = "financemodel"
 #: Tool inventory deny-list (D6, PLN-08): no execution, trading, order, payment or wallet tool.
+READ_ONLY_EXCEPTIONS = frozenset({"list_executions"})
 DENIED_WORDS = ("execute", "execution", "trade", "trading", "order", "payment", "wallet")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{1,63}\Z")
 
@@ -70,6 +71,9 @@ class CatalogEntry:
 
     @property
     def input_schema(self) -> str:
+        if self.name == "recommend_portfolio":
+            # The original explicit-state request remains immutable for 1.2 consumers.
+            return "tools/recommend-portfolio-invocation-request"
         return _schema_name(self.name, "request")
 
     @property
@@ -95,6 +99,32 @@ def _schema_name(tool: str, kind: str) -> str:
 CATALOG: dict[str, CatalogEntry] = {
     e.name: e
     for e in (
+        CatalogEntry("get_publication", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
+        CatalogEntry("list_publications", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
+        CatalogEntry("list_executions", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
+        CatalogEntry("recommend_portfolio", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.3.0"),
+        CatalogEntry("recommend_classical_portfolio", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("explain_classical_recommendation", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("compare_classical_plans", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("evaluate_classical_performance", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("get_classical_analysis", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("list_classical_analyses", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("research_portfolio_models", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("research_market_events", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("submit_portfolio_feedback", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("run_portfolio_research", True, "submitter", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        CatalogEntry("run_recursive_improvement", True, "submitter", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.6.0"),
+        CatalogEntry("get_portfolio_history", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.5.0"),
+        CatalogEntry("list_portfolio_decisions", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.5.0"),
+        CatalogEntry("get_portfolio_decision", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.5.0"),
+        CatalogEntry("resolve_portfolio_decision", True, "plan-writer", (PRODUCER_PLATFORM,), "write", min_producer_contract="1.5.0"),
+        CatalogEntry("list_market_snapshots", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.5.0"),
+        CatalogEntry("record_agent_activity", False, "reader", (PRODUCER_PLATFORM,), "write", min_producer_contract="1.5.0"),
+        CatalogEntry("list_agent_activity", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.5.0"),
+        CatalogEntry("explain_portfolio_decision", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.5.0"),
+        CatalogEntry("compare_portfolio_decisions", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.5.0"),
+        CatalogEntry("evaluate_portfolio_decision", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.5.0"),
+        CatalogEntry("get_performance_evidence", False, "reader", (PRODUCER_MODEL,), "read", min_producer_contract="1.2.0"),
         CatalogEntry("describe_capabilities", False, "reader", (), "read"),
         CatalogEntry("query_market_data", False, "reader", (PRODUCER_PLATFORM,), "read"),
         CatalogEntry("get_plan", False, "reader", (PRODUCER_PLATFORM,), "read"),
@@ -192,7 +222,7 @@ def inventory_problems(names: Iterable[str]) -> list[str]:
         if not _NAME.match(n):
             out.append(f"tool name {n!r} is not snake_case")
         hit = [w for w in DENIED_WORDS if w in n]
-        if hit:
+        if hit and n not in READ_ONLY_EXCEPTIONS:
             out.append(f"tool {n!r} names a denied capability ({', '.join(hit)})")
     return out
 

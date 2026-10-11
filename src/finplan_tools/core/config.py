@@ -49,7 +49,7 @@ DEFAULT_TOOL_LIMITS: dict[str, Any] = {
     "page_size_max": 100,
     "summary_top_n": 10,
     "reference_ttl_seconds": 300,
-    "timeouts_seconds": {"read": 30, "write": 30, "refresh_market_data": 60},
+    "timeouts_seconds": {"read": 30, "write": 30, "refresh_market_data": 60, "recommendation": 300},
 }
 
 
@@ -118,6 +118,10 @@ class ToolLimits:
     @classmethod
     def from_document(cls, doc: Mapping[str, Any] | None) -> "ToolLimits":
         merged = {**DEFAULT_TOOL_LIMITS, **dict(doc or {})}
+        # Existing environments may have a timeout map from an older release. Retain its
+        # overrides while supplying deadlines for newly added tools.
+        if isinstance(merged["timeouts_seconds"], Mapping):
+            merged["timeouts_seconds"] = {**DEFAULT_TOOL_LIMITS["timeouts_seconds"], **merged["timeouts_seconds"]}
         problems = tool_limits_problems(merged)
         if problems:
             raise ValueError("invalid tool-limits: " + "; ".join(problems))

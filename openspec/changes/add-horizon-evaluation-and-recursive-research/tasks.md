@@ -1,0 +1,4 @@
+- [x] 1. Add bounded recursive research adapter, registry and verified gateway identity handling.
+- [x] 2. Preserve objective-horizon evaluation evidence and verify paid preflight, authorization and dry-run behavior.
+- [x] 3. Validate contract/pipeline compatibility and record integration handoff.
+- [x] 4. Preserve validated nested research citations through recursive review and analysis retrieval without allowing storage or private URLs.
