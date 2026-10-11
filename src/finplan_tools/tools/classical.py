@@ -1,6 +1,7 @@
 """Traditional optimization, immutable explanation evidence and bounded research adapters."""
 from __future__ import annotations
 
+from ipaddress import ip_address
 from math import isfinite
 from urllib.parse import urlparse
 
@@ -15,6 +16,43 @@ def _paid(request):
 
 
 PAID_RESEARCH_TOOLS = frozenset({"run_portfolio_research", "run_recursive_improvement"})
+_MAX_CITATIONS = 50
+_MAX_CITATION_EVIDENCE = 100
+# Only validated URL leaves are exempted, never source metadata or evidence subtrees.
+_CITATION_POINTERS = tuple(f"/sources/{i}/url" for i in range(_MAX_CITATIONS)) + tuple(
+    f"/evidence/{i}/sources/{j}/url" for i in range(_MAX_CITATION_EVIDENCE) for j in range(_MAX_CITATIONS)
+)
+
+
+def _validate_public_citation(url):
+    invalid = ToolError.internal("the producer returned an invalid public evidence citation")
+    if not isinstance(url, str) or len(url) > 2048 or "\\" in url or any(c.isspace() for c in url):
+        raise invalid
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower().rstrip(".")
+        parsed.port  # Invalid port syntax is not a public citation.
+    except ValueError:
+        raise invalid from None
+    if parsed.scheme not in ("http", "https") or not hostname or parsed.username or parsed.password:
+        raise invalid
+    if hostname.endswith(("amazonaws.com", "amazonaws.com.cn", ".local", ".localhost", ".internal", ".lan", ".home", ".test", ".invalid")) or hostname == "localhost":
+        raise invalid
+    try:
+        address = ip_address(hostname)
+    except ValueError:
+        if "." not in hostname or hostname.replace(".", "").isdigit():
+            raise invalid
+    else:
+        if not address.is_global:
+            raise invalid
+
+
+def _validate_sources(sources):
+    if not isinstance(sources, list) or len(sources) > _MAX_CITATIONS:
+        raise ToolError.internal("the producer returned invalid public evidence sources")
+    for source in sources:
+        _validate_public_citation(source.get("url") if isinstance(source, dict) else None)
 
 
 def _authorize_research(invocation, request, tool_fields):
@@ -27,16 +65,19 @@ def _authorize_research(invocation, request, tool_fields):
 
 
 def _validate_reference(doc):
-    if "analyses" in doc:
+    if "analyses" in doc and "analysis_id" not in doc:
         return
     ref = doc.get("analysis_ref") or {}
     if ref.get("owner") != "financemodel" or ref.get("artifact_id") != doc.get("analysis_id") or ref.get("kind") != "classical_analysis":
         raise ToolError.internal("the producer returned an inconsistent immutable analysis reference")
-    for source in doc.get("sources", []):
-        parsed = urlparse(source.get("url", ""))
-        hostname = (parsed.hostname or "").lower()
-        if parsed.scheme not in ("http", "https") or not hostname or parsed.username or parsed.password or hostname.endswith("amazonaws.com") or hostname in {"localhost", "127.0.0.1", "::1"}:
-            raise ToolError.internal("the producer returned an invalid public evidence citation")
+    _validate_sources(doc.get("sources", []))
+    evidence = doc.get("evidence", [])
+    if isinstance(evidence, list):
+        for index, item in enumerate(evidence):
+            if isinstance(item, dict) and "sources" in item:
+                if index >= _MAX_CITATION_EVIDENCE:
+                    raise ToolError.internal("the producer returned too many citation evidence records")
+                _validate_sources(item["sources"])
 
 
 def _benchmark_category(estimate):
@@ -107,7 +148,7 @@ for _name, _description in _DESCRIPTIONS.items():
         _name,
         description=_description,
         list_key="analyses" if _name == "list_classical_analyses" else None,
-        grant_pointers=tuple(f"/sources/{index}/url" for index in range(50)),
+        grant_pointers=_CITATION_POINTERS,
         writes=_paid if _name in PAID_RESEARCH_TOOLS else None,
         authorize=_authorize_research if _name in PAID_RESEARCH_TOOLS else None,
     )(_invoke)

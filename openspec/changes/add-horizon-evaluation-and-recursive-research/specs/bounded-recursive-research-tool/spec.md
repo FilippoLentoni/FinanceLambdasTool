@@ -7,6 +7,10 @@ The system SHALL expose run_recursive_improvement using the same-environment mod
 - **WHEN** a caller omits dry_run or supplies dry_run=true
 - **THEN** the adapter returns producer evidence without paid authorization or launching compute.
 
+#### Scenario: Nested public research citations
+- **WHEN** a recursive review or analysis retrieval returns evidence sources with public HTTP citations
+- **THEN** the adapter validates and returns only those citation URL leaves, rejects storage/private URLs, and retains leak scanning for other source metadata and evidence fields.
+
 ### Requirement: Bounded paid research
 Paid recursive advancement SHALL require a verified researcher identity, confirmed_by_user=true, downstream idempotency and a finite nonnegative producer estimate within category budgets. Ordinary research SHALL retain the USD 0.50 CPU hard bound. Schema-valid matching Qwen/Jev benchmark proposals SHALL use their sandbox category caps and retain producer compute/vendor approval rules.
 

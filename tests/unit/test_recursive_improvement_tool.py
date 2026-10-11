@@ -33,6 +33,73 @@ def test_default_readonly_recursive_call_preserves_immutable_lineage(offline, in
     assert offline.jobs.count() == 0
 
 
+@pytest.mark.parametrize("tool", ["run_recursive_improvement", "get_classical_analysis"])
+def test_nested_public_research_citations_survive_real_pipeline_and_retrieval(offline, invoke, tool):
+    document = recursive_evidence()
+    document["evidence"] = [{"source_type": "performance"}, {"source_type": "feedback"}, {
+        "source_type": "research_review", "sources": [
+            {"url": "https://arxiv.org/abs/2305.01234", "title": "Portfolio policy research"},
+            {"url": "https://doi.org/10.1000/example", "title": "Optimization research"}]}]
+    client = Client(document)
+    wire(offline, client)
+    request = {"dry_run": True} if tool == "run_recursive_improvement" else {"analysis_id": document["analysis_id"]}
+    result = invoke(offline, tool, request, source="ci_test")
+    assert result == document, result
+    assert len(client.calls) == 1 and offline.jobs.count() == 0
+
+
+@pytest.mark.parametrize("tool", ["run_recursive_improvement", "get_classical_analysis"])
+@pytest.mark.parametrize("url", [
+    "s3:" + "//private-research/artifact.json",
+    "https://private-research.s3.amazonaws.com/artifact.json",
+    "https://127.0.0.1/research", "https://127.1/research", "https://10.0.0.1/research", "https://169.254.169.254/latest",
+    "https://[::1]/research", "https://[fd00::1]/research", "https://research.internal/paper",
+    "https://localhost/paper", "https://research.local/paper", "https://research/paper",
+    "https://user:password@arxiv.org/paper",
+])
+def test_nested_storage_and_private_citations_are_not_returned(offline, invoke, tool, url):
+    document = recursive_evidence()
+    document["evidence"] = [{"source_type": "research_review", "sources": [{"url": url}]}]
+    client = Client(document)
+    wire(offline, client)
+    request = {"dry_run": True} if tool == "run_recursive_improvement" else {"analysis_id": document["analysis_id"]}
+    result = invoke(offline, tool, request)
+    assert result["code"] == "INTERNAL", result
+    assert url not in str(result) and len(client.calls) == 1
+
+
+@pytest.mark.parametrize("tool", ["run_recursive_improvement", "get_classical_analysis"])
+@pytest.mark.parametrize("location", ["source_metadata", "evidence_sibling", "evidence_deeper", "top_level"])
+def test_nested_citation_allowance_does_not_exempt_other_storage_locations(offline, invoke, tool, location):
+    document = recursive_evidence()
+    document["evidence"] = [{"source_type": "research_review", "sources": [{"url": "https://arxiv.org/abs/2305.01234"}]}]
+    leaked = "s3:" + "//private-research/artifacts/result.json"
+    if location == "source_metadata":
+        document["evidence"][0]["sources"][0]["artifact_location"] = leaked
+    elif location == "evidence_sibling":
+        document["evidence"][0]["artifact_location"] = leaked
+    elif location == "evidence_deeper":
+        document["evidence"][0]["extra"] = {"sources": [{"url": leaked}]}
+    else:
+        document["artifact_location"] = leaked
+    client = Client(document)
+    wire(offline, client)
+    request = {"dry_run": True} if tool == "run_recursive_improvement" else {"analysis_id": document["analysis_id"]}
+    result = invoke(offline, tool, request)
+    assert result["code"] == "INTERNAL", result
+    assert leaked not in str(result) and len(client.calls) == 1
+
+
+def test_analysis_cannot_skip_citation_validation_by_adding_a_list_field(offline, invoke):
+    document = recursive_evidence()
+    document["analyses"] = []
+    document["evidence"] = [{"sources": [{"url": "https://private-research.s3.amazonaws.com/artifact.json"}]}]
+    client = Client(document)
+    wire(offline, client)
+    result = invoke(offline, "get_classical_analysis", {"analysis_id": document["analysis_id"]})
+    assert result["code"] == "INTERNAL", result
+
+
 @pytest.mark.parametrize("amount", [.51, float("inf"), True, -1])
 def test_recursive_paid_estimate_cannot_escape_cpu_hard_cap(offline, invoke, amount):
     document = recursive_evidence()
