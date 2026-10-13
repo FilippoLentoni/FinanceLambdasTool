@@ -75,7 +75,9 @@ PARTIAL_MESSAGE = "The run did not complete with all outputs; only the listed re
         "Model-selection runs (job_type model_selection) add a model_selection summary: the "
         "validation-chosen model, per-split (train, validation, test) tables for controls, traditional "
         "optimizers and RL, RL per-seed metrics with mean/std/min/max across seeds, and the promotion "
-        "check against the incumbent. Partial runs are flagged. Read-only."
+        "check against the incumbent. State-ablation runs retain profile/feature provenance in "
+        "payload.state_ablation and matched seed/control metrics; inspected test periods remain "
+        "development evidence. Partial runs are flagged. Read-only."
     ),
 )
 def get_experiment_result(ctx: Any, request: dict[str, Any]) -> dict[str, Any]:
