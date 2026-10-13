@@ -66,18 +66,14 @@ PARTIAL_MESSAGE = "The run did not complete with all outputs; only the listed re
 @register_tool(
     "get_experiment_result",
     description=(
-        "Read the result of a finished FinanceModel run by run_id: completion_status (did the run "
-        "finish) separately from solution_status (optimal, feasible, infeasible, unbounded, no_effect), "
-        "separate portfolio-performance, model-accuracy and compute-cost sections, lineage identifiers "
-        "and trusted artifact references. Benchmark and backtest runs add a comparison table (each "
-        "strategy and control with total_return, cagr, ann_volatility, sharpe, max_drawdown, "
-        "turnover, transaction_cost; units included) and the optimizer's final and average weights. "
-        "Model-selection runs (job_type model_selection) add a model_selection summary: the "
-        "validation-chosen model, per-split (train, validation, test) tables for controls, traditional "
-        "optimizers and RL, RL per-seed metrics with mean/std/min/max across seeds, and the promotion "
-        "check against the incumbent. State-ablation runs retain profile/feature provenance in "
-        "payload.state_ablation and matched seed/control metrics; inspected test periods remain "
-        "development evidence. Partial runs are flagged. Read-only."
+        "Read a finished run by run_id, separating completion from solution status, portfolio "
+        "performance, model accuracy and compute cost. Includes trusted artifacts and lineage. "
+        "Benchmarks compare strategies/controls by net return, Sharpe, volatility, drawdown, "
+        "turnover and transaction costs, with units and weights. Model-selection results retain "
+        "train/validation/test tables, selected settings, RL seeds and mean/std/min/max, and "
+        "promotion checks. PPO state studies retain matched seed/control metrics and feature "
+        "provenance in payload.state_ablation. Inspected test periods are development evidence. "
+        "Partial results are flagged. Read-only."
     ),
 )
 def get_experiment_result(ctx: Any, request: dict[str, Any]) -> dict[str, Any]:
