@@ -237,3 +237,31 @@ def test_horizon_evidence_passes_unchanged_through_existing_adapter(offline, inv
     wire(offline, client)
     result = invoke(offline, "evaluate_portfolio_decision", {"portfolio_id": "pf_01JA2B3C4D5E6F7G8H9JKMNPQR", "decision_id": "pd_01JA2B3C4D5E6F7G8H9JKMNPQR"})
     assert result == expected
+
+
+def test_large_state_research_view_preserves_proposal_and_immutable_joins(offline, invoke):
+    from finplan_tools.core.bounds import response_size
+    document = recursive_evidence()
+    document['analysis_kind'] = 'recursive_iteration'
+    document['evidence'] = [{'analysis_id': AID, 'source_type': 'performance',
+                             'expanded_details': 'synthetic research detail ' * 6000}]
+    original = deepcopy(document)
+    wire(offline, Client(document))
+    result = invoke(offline, 'run_recursive_improvement', {'query': 'Review PPO state'}, source='ci_test')
+    assert response_size(result) < 65536
+    assert result['analysis_ref'] == original['analysis_ref']
+    assert result.get('proposed_experiment') == original.get('proposed_experiment')
+    assert result.get('cost_estimate') == original.get('cost_estimate')
+    assert result['evidence'][0]['analysis_id'] == AID
+    assert result['evidence_view']['truncated'] is True
+    assert document == original
+
+
+def test_large_research_compaction_cannot_hide_private_evidence(offline, invoke):
+    document = recursive_evidence()
+    document['analysis_kind'] = 'recursive_iteration'
+    document['evidence'] = [{'analysis_id': AID, 'expanded_details': 'synthetic detail ' * 6000,
+                             'private_location': 's3' + '://private-research-store/path'}]
+    wire(offline, Client(document))
+    result = invoke(offline, 'run_recursive_improvement', {'query': 'Review PPO state'}, source='ci_test')
+    assert result['code'] == 'INTERNAL', result

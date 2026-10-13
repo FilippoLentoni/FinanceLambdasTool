@@ -1,11 +1,14 @@
 """Traditional optimization, immutable explanation evidence and bounded research adapters."""
 from __future__ import annotations
 
+import copy
 from ipaddress import ip_address
 from math import isfinite
 from urllib.parse import urlparse
 
 from ..core.budget import check_tool_budget
+from ..core.artifacts import response_leaks
+from ..core.bounds import response_size
 from ..core.errors import BUDGET_EXCEEDED, FORBIDDEN, PRECONDITION_FAILED, ToolError
 from ..core.registry import register_tool
 from ._common import producer_doc
@@ -80,6 +83,32 @@ def _validate_reference(doc):
                 _validate_sources(item["sources"])
 
 
+def _research_view(doc, limit):
+    if doc.get("analysis_kind") not in ("research", "recursive_iteration", "research_run") or response_size(doc) <= min(48000, limit - 2048):
+        return doc
+    # Validate before summarizing: an omitted field must never hide private data.
+    if response_leaks(doc, allowed_pointers=_CITATION_POINTERS):
+        raise ToolError.internal("the producer research response contains private locations")
+    out = copy.deepcopy(doc)
+    fields = {"source_type", "analysis_id", "kind", "summary", "source_decision_id", "source_decision_ref", "window", "observed_trend", "trust", "text", "query", "run_id", "status"}
+    out["evidence"] = [{k: v for k, v in item.items() if k in fields} for item in doc.get("evidence", []) if isinstance(item, dict)]
+    # Every omitted numerical analysis remains identified by its issued analysis ID;
+    # completed experiment details are separately accessible through get_experiment_result.
+    for key in ("prior_experiment_findings", "result_summary"):
+        if key in out:
+            value = out[key]
+            if isinstance(value, dict):
+                out[key] = {k: v for k, v in value.items() if k != "comparison"}
+            elif isinstance(value, list):
+                out[key] = [{k: v for k, v in item.items() if k in ("analysis_id", "research_analysis_id", "run_id", "status", "performance", "reuse_disclosure")} for item in value if isinstance(item, dict)]
+    out["evidence_view"] = {"truncated": True, "full_analysis_ref": doc["analysis_ref"],
+                            "omitted": ["expanded evidence details", "repeated comparison tables"],
+                            "retrieval": "Use source analysis IDs and experiment run IDs for their individual evidence; the immutable analysis retains the complete original."}
+    if response_size(out) > limit - 1024:
+        raise ToolError.internal("research summary cannot fit without losing its proposal or evidence joins")
+    return out
+
+
 def _benchmark_category(estimate):
     """Recognize only a typed, matching benchmark proposal, never a free-text exemption."""
     from finplan_contracts.validate import validate
@@ -110,7 +139,7 @@ def _invoke(ctx, request):
             # Running/stopped/completed cycles are evidence reads. There is no cost
             # estimate to authorize and no reason to call the mutation path again.
             _validate_reference(estimate)
-            return estimate
+            return _research_view(estimate, ctx.limits.response_max_bytes)
         cost = producer_doc(estimate.get("cost_estimate"), "research cost estimate")
         check_tool_budget(cost, ctx.limits)
         amount = cost.get("estimated_usd_upper_bound")
@@ -123,7 +152,7 @@ def _invoke(ctx, request):
     _validate_reference(doc)
     if operation == "get_classical_analysis" and doc.get("analysis_id") != request["analysis_id"]:
         raise ToolError.internal("the producer returned another analysis than requested")
-    return doc
+    return _research_view(doc, ctx.limits.response_max_bytes)
 
 
 _DESCRIPTIONS = {

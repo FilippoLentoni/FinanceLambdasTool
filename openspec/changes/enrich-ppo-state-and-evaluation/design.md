@@ -21,3 +21,12 @@ Inspected market path → development label and no promotion. Thin training hist
 ## Migration Plan
 
 Validate locally, deploy owner artifacts through beta pipelines, preserve gamma/prod state and transition baselines, verify compatible consumer releases. Retain prior selected policy reference for rollback; no automatic activation.
+
+### Large research evidence
+
+Live state-preview verification on an accumulated paper book exceeded the 64 KiB Lambda
+transport read cap. Bound producer transport at 1 MiB, validate all public identity/citation
+and privacy fields before compaction, and return a compact research view below the unchanged
+64 KiB MCP limit. Preserve exact proposal/approval arguments and immutable analysis references;
+source analysis and experiment identifiers allow individual retrieval. Full producer artifacts
+remain unchanged. Tests cover oversized histories, intact proposals and concealed private data.

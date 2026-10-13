@@ -6,7 +6,9 @@ import re
 
 from ..core.errors import ToolError, from_producer_envelope
 
-MAX_RESPONSE_BYTES = 65536
+# Transport is separately bounded from the public MCP response. Research histories
+# are validated in full, then summarized with immutable evidence joins by the tool.
+MAX_RESPONSE_BYTES = 1024 * 1024
 
 
 class ClassicalLambdaClient:
