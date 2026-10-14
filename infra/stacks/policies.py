@@ -187,7 +187,10 @@ def role_class_policy(env: str, role_class: str, *, apis: ProducerApis | None = 
         # would exceed IAM's aggregate inline-policy quota as the catalog grows.
         *contract_boundaries.live_financial_deny_statements(),
     ]
-    return {"Version": "2012-10-17", "Statement": st}
+    # Sid is optional IAM metadata. Omit it from the runtime inline policy to
+    # stay below the aggregate 10 KiB role limit as read tools are added;
+    # retain every action, resource, condition and explicit deny unchanged.
+    return {"Version": "2012-10-17", "Statement": [{k: v for k, v in statement.items() if k != "Sid"} for statement in st]}
 
 
 # ===================================================================== pipeline roles

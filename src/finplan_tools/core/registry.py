@@ -99,6 +99,10 @@ def _schema_name(tool: str, kind: str) -> str:
 CATALOG: dict[str, CatalogEntry] = {
     e.name: e
     for e in (
+        CatalogEntry("get_crypto_experiment", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.7.0"),
+        CatalogEntry("recommend_crypto_portfolio", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.7.0"),
+        CatalogEntry("list_crypto_history", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.7.0"),
+        CatalogEntry("discover_research_data", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.7.0"),
         CatalogEntry("get_publication", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
         CatalogEntry("list_publications", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
         CatalogEntry("list_executions", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
