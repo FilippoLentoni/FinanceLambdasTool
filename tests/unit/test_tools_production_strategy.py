@@ -209,7 +209,7 @@ def test_pst04_plan_writer_cannot_write_financemodel_config(env):
     for action in ("ssm:PutParameter", "ssm:DeleteParameter", "ssm:LabelParameterVersion"):
         assert not _allowed(env, action, key), action
     policy = role_class_policy(env, "plan-writer", **KW)
-    deny = next(s for s in policy["Statement"] if s["Sid"] == "DenyFinanceModelConfigWrites")
+    deny = next(s for s in policy["Statement"] if s["Effect"] == "Deny" and "ssm:PutParameter" in s.get("Action", []) and any("financemodel/config" in r for r in s.get("Resource", []) if isinstance(r, str)))
     assert deny["Effect"] == "Deny" and "ssm:PutParameter" in deny["Action"]
 
 
