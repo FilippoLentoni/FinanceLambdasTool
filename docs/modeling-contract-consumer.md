@@ -1,6 +1,6 @@
 # Beta modeling evidence contract consumer
 
-This release pins the exact compatible `finplan-contracts` 1.12.0 wheel published
+This release pins the exact compatible `finplan-contracts` 1.13.1 wheel produced
 by FinancialPlanning. Portfolio decisions now identify language model, agentic,
 control, reinforcement learning and optimization families honestly. Existing tools
 pass through versioned platform evidence instead of substituting family labels.
@@ -11,6 +11,11 @@ policy; this does not grant a tool, agent or caller automatic acceptance of a us
 portfolio. Tool permissions, budgets, gateway authentication and real-order
 prohibitions remain unchanged.
 
-Validation for this pin: unit/contract suite (801 tests), then contract suite (171
-tests) and pin check against the final rebuilt wheel. Pipeline build and deployed
-beta checks are recorded in the central beta-modeling deployment evidence.
+The additive native-input reference supports isolated hourly crypto experiments
+without inventing an equity snapshot identity. Existing snapshot-backed decisions
+and user confirmation are preserved. Version 1.13.1 tightens the compatible-schema
+proof guard; it does not change the 1.13.0 schemas.
+
+Validation includes the prior 801-test unit/contract suite and affected contract,
+pin and infrastructure checks against the final frozen wheel. Pipeline build and
+deployed beta checks are recorded in the central beta-modeling deployment evidence.
