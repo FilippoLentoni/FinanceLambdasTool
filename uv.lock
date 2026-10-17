@@ -265,7 +265,7 @@ dependencies = [
     { name = "rfc8785" },
 ]
 wheels = [
-    { filename = "finplan_contracts-1.10.0-py3-none-any.whl", hash = "sha256:b5e930a06cc6a4b58a62f60f97494059acd303fed028fce6d93bb30c986bc466" },
+    { filename = "finplan_contracts-1.10.0-py3-none-any.whl", hash = "sha256:7bebe5d5b77d061a105d38ae77e3d1170e83833198ec8355eaff656a217dbaf5" },
 ]
 
 [package.metadata]

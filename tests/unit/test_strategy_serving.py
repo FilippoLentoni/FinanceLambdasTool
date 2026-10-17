@@ -154,7 +154,7 @@ def test_default_request_schema_supports_saved_book_without_mixing_actual_state(
 
 
 def test_current_news_timing_response_passes_through_the_read_only_tool_pipeline(offline, invoke):
-    """The 1.10 timing enum must survive real adapter output validation."""
+    """Current-news metadata must survive output validation while retaining legacy timing."""
     from finplan_contracts.schemas import contracts_root
     from finplan_tools.backends.jobs import JobClient
     response = json.loads((contracts_root() / 'fixtures/tools/recommend-portfolio-response/valid/current-news-timing.json').read_text())
@@ -162,6 +162,7 @@ def test_current_news_timing_response_passes_through_the_read_only_tool_pipeline
     offline.runtime.jobs = lambda timeout: JobClient(offline.jobs, timeout=timeout, strategy_client=backend(client))
     result = invoke(offline, 'recommend_portfolio', {})
     assert result == response, result
-    assert result['recommendation']['decision_timing'] == 'current_news_with_latest_completed_prices'
+    assert result['recommendation']['decision_timing'] == 'after_completed_close_for_next_session'
+    assert result['recommendation']['news_timing'] == 'eligible_news_at_decision_with_completed_prices'
     assert len(client.calls) == 1
     assert offline.jobs.count() == 0 and offline.platform.count() == 0
