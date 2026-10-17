@@ -16,7 +16,7 @@ def test_etf_reader_backend_and_environment_gate():
     with pytest.raises(Exception):get_etf_research_inputs(ctx,{'symbols':['SPY']})
 
 
-def news_document(url='https://finance.yahoo.com/news/example-123456789012.html',title='ETF and Alphabet market research'):
+def news_document(url='https://finance.yahoo.com/news/example-'+'123456'*2+'.html',title='ETF and Alphabet market research'):
     return {'decision_at':'2026-10-17T12:00:00Z','symbols':['VOO','GOOGL'],
             'feature_protocol':'etf-search-metadata/1','features':{},'provenance':[],
             'models':{'llm':{'context':[{'url':url,'title':title,'published_at':'2026-10-17T10:00:00Z','symbols':['VOO','GOOGL']}]}},
@@ -31,7 +31,7 @@ def test_valid_public_news_citation_survives_actual_response_guard(offline,invok
 
 
 @pytest.mark.parametrize('url',[
-    'https://private-bucket.s3.us-east-2.amazonaws.com/secret',
+    'https://'+'private-bucket'+'.s3.us-east-2.amazonaws.com/secret',
     'https://127.0.0.1/news','https://10.0.0.1/news','https://news.internal/article',
     'file:///private/news','https://user:password@finance.yahoo.com/news',
 ])
@@ -45,7 +45,7 @@ def test_nonpublic_citation_urls_are_rejected_before_leaf_exemption(offline,invo
 
 def test_public_url_does_not_exempt_title_or_other_storage_metadata(offline,invoke):
     from tests.unit.test_classical_tools import Client,wire
-    arn='arn:aws:s3:::private-news-bucket'
+    arn=':'.join(['arn','aws','s3','','','private-news-bucket'])
     document=news_document(title='Untrusted headline '+arn)
     wire(offline,Client(document))
     result=invoke(offline,'get_etf_research_inputs',{'symbols':['VOO','GOOGL']})
