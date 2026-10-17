@@ -9,6 +9,7 @@ from typing import Any, Iterable, Mapping
 
 from ..core.contracts import store
 from ..core.errors import ToolError
+from ..core.public_response import public_document
 
 __all__ = ["schema_properties", "project", "iso", "producer_doc"]
 
@@ -41,10 +42,10 @@ def project(doc: Mapping[str, Any], schema: str, *, keep: Iterable[str] = ()) ->
 
 
 def producer_doc(value: Any, what: str) -> dict[str, Any]:
-    """A producer 2xx body that must be a JSON object (anything else is a producer defect)."""
+    """A public copy of a producer 2xx object, preserving its immutable evidence joins."""
     if not isinstance(value, Mapping):
         raise ToolError.internal(f"the producer returned no {what} document")
-    return dict(value)
+    return public_document(value)
 
 
 def iso(dt: datetime) -> str:

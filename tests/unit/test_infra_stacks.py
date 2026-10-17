@@ -84,7 +84,7 @@ def test_one_arm64_function_per_tool_with_alias_and_log_group(tpl, env):
         assert p["Handler"] == "finplan_tools.handler.handler"
         assert "VpcConfig" not in p and "ReservedConcurrentExecutions" not in p
         assert p["Timeout"] == DEFAULT_TOOL_LIMITS["timeouts_seconds"][CATALOG[tool].timeout_key]
-        assert set(p["Environment"]["Variables"]) == {"FINPLAN_ENV", "FINPLAN_TOOL_NAME", "FINPLAN_RELEASE_ID"}
+        assert set(p["Environment"]["Variables"]) == {"FINPLAN_ENV", "FINPLAN_TOOL_NAME", "FINPLAN_RELEASE_ID", "FINPLAN_ACCOUNT_ID"}
         assert p["Environment"]["Variables"]["FINPLAN_ENV"] == env
         assert tags(f)["logical-role"] == "tool-lambda"
         assert [a for a in aliases.values() if a["Properties"]["FunctionName"] == {"Ref": lid} and a["Properties"]["Name"] == "current"]

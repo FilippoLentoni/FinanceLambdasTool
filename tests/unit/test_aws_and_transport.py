@@ -32,6 +32,14 @@ def test_s3_client_is_regional_sigv4():
 def test_ssm_client_is_regional():
     c = aws_clients.ssm_client(REGION)
     assert c.meta.region_name == REGION and c.meta.config.signature_version == "v4"
+    assert c.meta.config.retries == {"total_max_attempts": 4, "mode": "standard"}
+
+
+def test_ssm_publication_retry_bound_preserves_runtime_defaults():
+    publication = aws_clients.ssm_client(REGION, total_max_attempts=10)
+    assert publication.meta.config.retries == {"total_max_attempts": 10, "mode": "standard"}
+    assert publication.meta.config.connect_timeout == 3 and publication.meta.config.read_timeout == 10
+    assert aws_clients.ssm_client(REGION).meta.config.retries == {"total_max_attempts": 4, "mode": "standard"}
 
 
 def test_no_bare_s3_client_anywhere():

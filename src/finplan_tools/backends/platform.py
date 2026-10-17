@@ -91,3 +91,34 @@ class PlatformClient:
     def run_ingestion(self, body: Mapping[str, Any], meta: CallMeta, *, timeout: float | None = None) -> Any:
         # The ingestion reference is the full POST URL (``.../v1/ingestions``): empty path.
         return call(self.ingestion, self.PRODUCER, "POST", "", meta, body=dict(body), timeout=timeout or self.timeout)
+
+    def get_publication(self, publication_id, meta):
+        return self._get(f"v1/publications/{publication_id}",meta)
+
+    def list_publications(self, plan_id, meta, **query):
+        return self._get(f"v1/plans/{plan_id}/publications",meta,query)
+
+    def list_executions(self, publication_id, meta, **query):
+        return self._get(f"v1/publications/{publication_id}/executions",meta,query)
+
+    # Versioned paper decision and activity lifecycle (contracts 1.5).
+    def get_portfolio_history(self, portfolio_id, meta, **query):
+        return self._get(f"v1/portfolios/{portfolio_id}/history", meta, query)
+
+    def list_portfolio_decisions(self, portfolio_id, meta, **query):
+        return self._get(f"v1/portfolios/{portfolio_id}/decisions", meta, query)
+
+    def get_portfolio_decision(self, decision_id, meta):
+        return self._get(f"v1/portfolio-decisions/{decision_id}", meta)
+
+    def resolve_portfolio_decision(self, decision_id, body, meta):
+        return self._post(f"v1/portfolio-decisions/{decision_id}/resolution", meta, dict(body))
+
+    def list_market_snapshots(self, meta, **query):
+        return self._get("v1/snapshots", meta, query)
+
+    def record_agent_activity(self, body, meta):
+        return self._post("v1/activity-events", meta, dict(body))
+
+    def list_agent_activity(self, meta, **query):
+        return self._get("v1/activity-events", meta, query)

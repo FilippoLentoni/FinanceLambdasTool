@@ -28,16 +28,17 @@ def session(region_name: str | None = None) -> Any:
     return boto3.session.Session(region_name=region(region_name))
 
 
-def _config(**extra: Any) -> Any:
+def _config(*, total_max_attempts: int | None = None, **extra: Any) -> Any:
     from botocore.config import Config
 
-    return Config(signature_version="v4", retries={"max_attempts": 3, "mode": "standard"}, connect_timeout=3, read_timeout=10, **extra)
+    retries = {"max_attempts": 3, "mode": "standard"} if total_max_attempts is None else {"total_max_attempts": total_max_attempts, "mode": "standard"}
+    return Config(signature_version="v4", retries=retries, connect_timeout=3, read_timeout=10, **extra)
 
 
-def ssm_client(region_name: str | None = None, *, boto_session: Any = None) -> Any:
-    """Regional SSM client (SigV4)."""
+def ssm_client(region_name: str | None = None, *, boto_session: Any = None, total_max_attempts: int | None = None) -> Any:
+    """Regional SSM client (SigV4); callers may bound standard retries for release publication."""
     r = region(region_name)
-    return (boto_session or session(r)).client("ssm", region_name=r, config=_config())
+    return (boto_session or session(r)).client("ssm", region_name=r, config=_config(total_max_attempts=total_max_attempts))
 
 
 def s3_client(region_name: str | None = None, *, boto_session: Any = None) -> Any:

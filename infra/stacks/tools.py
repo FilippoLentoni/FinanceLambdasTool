@@ -173,7 +173,7 @@ class ToolsStack(EnvStack):
 
     def _function(self, env: str, entry: CatalogEntry, code: lambda_.Code) -> tuple[lambda_.Function, lambda_.Alias]:
         cid = _camel(entry.name)
-        env_vars = {"FINPLAN_ENV": env, "FINPLAN_TOOL_NAME": entry.name}
+        env_vars = {"FINPLAN_ENV": env, "FINPLAN_TOOL_NAME": entry.name, "FINPLAN_ACCOUNT_ID": Aws.ACCOUNT_ID}
         if self.release_id:
             env_vars["FINPLAN_RELEASE_ID"] = self.release_id
         fn = lambda_.Function(

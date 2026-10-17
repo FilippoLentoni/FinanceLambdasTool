@@ -78,6 +78,9 @@ def tool_logical(tool: str) -> str:
     """Kebab-case tool name (function names and SSM reference names)."""
     if tool not in CATALOG:
         raise ValueError(f"{tool!r} is not a catalog tool")
+    # Keep physical Lambda names within AWS's 64-character limit in every stage.
+    if tool == "explain_classical_recommendation":
+        return "explain-classical-plan"
     return tool.replace("_", "-")
 
 

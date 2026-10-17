@@ -321,6 +321,24 @@ def test_predeploy_action_checks_the_contract_pin(monkeypatch):
         stage_runner.predeploy_action("gamma", ssm=DictSsm(producer_params("gamma")), account=ACCOUNT, out=lambda _m: None)
 
 
+@pytest.mark.parametrize("action, expected_attempts", [("publish", 10), ("predeploy", None)])
+def test_stage_ssm_uses_larger_retry_bound_only_for_publication(monkeypatch, action, expected_attempts):
+    from finplan_tools.core import aws_clients
+    from scripts import stage_runner
+
+    calls = []
+    fake_session = SimpleNamespace(client=lambda *args, **kwargs: SimpleNamespace(get_caller_identity=lambda: {"Account": ACCOUNT}))
+    monkeypatch.setattr(boto3.session, "Session", lambda **kwargs: fake_session)
+    monkeypatch.setattr(stage_runner.ReleaseInfo, "load", lambda path: info())
+    monkeypatch.setattr(aws_clients, "ssm_client", lambda *args, **kwargs: calls.append(kwargs) or SimpleNamespace())
+    monkeypatch.setattr(aws_clients, "s3_client", lambda *args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr(stage_runner, "predeploy_action", lambda *args, **kwargs: {})
+    monkeypatch.setattr(stage_runner, "publish_action", lambda *args, **kwargs: {"release_id": RID, "previous_release_id": None, "outputs": {}})
+
+    assert stage_runner.main([action, "--env", "beta"]) == 0
+    assert len(calls) == 1 and calls[0].get("total_max_attempts") == expected_attempts
+
+
 # ===================================================================== lesson L5: stage tests
 def _junit(path: Path, tests: int, skipped: int = 0, failures: int = 0) -> None:
     path.write_text(f'<testsuites><testsuite name="s" tests="{tests}" skipped="{skipped}" failures="{failures}" errors="0"></testsuite></testsuites>')
