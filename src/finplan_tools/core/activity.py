@@ -7,13 +7,14 @@ import re
 from collections.abc import Mapping
 
 from .contracts import contract_version, validate_document
+from .errors import ToolError
 from .identity import caller_block
 from .transport import CallMeta
 
-_SECRET_KEYS = re.compile(r"authorization|bearer|password|secret|access.token|refresh.token|id.token|user.token|download.grant|presigned|credential", re.I)
+_SECRET_KEYS = re.compile(r"authorization|bearer|password|secret|access.token|refresh.token|id.token|user.token|download.grant|presigned|credential", re.IGNORECASE)
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")
-_PRIVATE_LOCATION = re.compile(r"s3://[^\s\"]+|arn:[a-z0-9-]*:[^\s\"]+|https?://[^\s\"]*amazonaws\.com[^\s\"]*", re.I)
-_SIGNED_URL = re.compile(r"https?://[^\s\"]*(?:X-Amz-|Signature=)[^\s\"]*", re.I)
+_PRIVATE_LOCATION = re.compile(r"s3://[^\s\"]+|arn:[a-z0-9-]*:[^\s\"]+|https?://[^\s\"]*amazonaws\.com[^\s\"]*", re.IGNORECASE)
+_SIGNED_URL = re.compile(r"https?://[^\s\"]*(?:X-Amz-|Signature=)[^\s\"]*", re.IGNORECASE)
 _ACTIVITY_METADATA = ("activity_event_id", "checksum", "event_kind", "recorded_at", "portfolio_id", "decision_id", "input_snapshot_id", "session_id", "correlation_id", "caller", "contract_version", "synthetic")
 _POINTER_KEYS = frozenset({"pointer", "json_pointer", "instance_pointer", "schema_pointer", "schema_path", "instancePath", "schemaPath"})
 
@@ -74,7 +75,17 @@ def activity_history_references(response):
     return {**response, "events": events, "evidence_representation": "immutable_activity_references"}
 
 
-def persist_tool_receipt(runtime, spec, invocation, cid, request, response, outcome):
+def _receipt_timeout(context):
+    # Cold archive initialization has exceeded the former ten-second deadline.
+    # Reserve one second for the envelope/audit and never extend Lambda's budget.
+    remaining = getattr(context, "get_remaining_time_in_millis", None)
+    timeout = min(20.0, remaining() / 1000.0 - 1.0) if callable(remaining) else 20.0
+    if timeout <= 0:
+        raise ToolError.dependency_unavailable("no time remains to persist the durable activity receipt", producer="financialplanning")
+    return timeout
+
+
+def persist_tool_receipt(runtime, spec, invocation, cid, request, response, outcome, *, context=None):
     meta = CallMeta(cid, contract_version(), caller_block(invocation, cid) if invocation else None)
     archived_response = activity_history_references(response) if spec.name == "list_agent_activity" else response
     payload = {"tool": spec.name, "request": sanitize(request), "response": sanitize(archived_response), "status": outcome,
@@ -94,4 +105,4 @@ def persist_tool_receipt(runtime, spec, invocation, cid, request, response, outc
             if isinstance(source, Mapping) and source.get(key) and validate_document({key: source[key]}, "identifiers").valid:
                 body[key] = source[key]
                 break
-    runtime.platform(10).record_agent_activity(body, meta)
+    runtime.platform(_receipt_timeout(context)).record_agent_activity(body, meta)

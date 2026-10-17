@@ -325,7 +325,7 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
         if runtime.durable_activity_receipts and spec.name != "record_agent_activity":
             from .activity import persist_tool_receipt
             try:
-                persist_tool_receipt(runtime, spec, inv, cid, request, response, outcome)
+                persist_tool_receipt(runtime, spec, inv, cid, request, response, outcome, context=context)
             except Exception:
                 log.exception("durable tool receipt failed (correlation_id=%s tool=%s)", cid, spec.name)
                 # Never report an unarchived successful decision. Idempotent write retries remain safe.
