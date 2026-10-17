@@ -151,3 +151,17 @@ def test_default_request_schema_supports_saved_book_without_mixing_actual_state(
     assert validate_document({'portfolio_id':'pf_01KDVDNAZ83BAMMYCEGWF33DPM'},'tools/recommend-portfolio-invocation-request').valid
     assert not validate_document({'as_of':'2026-10-08'},'tools/recommend-portfolio-invocation-request').valid
     assert not validate_document({'holdings':{}},'tools/recommend-portfolio-invocation-request').valid
+
+
+def test_current_news_timing_response_passes_through_the_read_only_tool_pipeline(offline, invoke):
+    """The 1.10 timing enum must survive real adapter output validation."""
+    from finplan_contracts.schemas import contracts_root
+    from finplan_tools.backends.jobs import JobClient
+    response = json.loads((contracts_root() / 'fixtures/tools/recommend-portfolio-response/valid/current-news-timing.json').read_text())
+    client = Client(json.dumps(response).encode())
+    offline.runtime.jobs = lambda timeout: JobClient(offline.jobs, timeout=timeout, strategy_client=backend(client))
+    result = invoke(offline, 'recommend_portfolio', {})
+    assert result == response, result
+    assert result['recommendation']['decision_timing'] == 'current_news_with_latest_completed_prices'
+    assert len(client.calls) == 1
+    assert offline.jobs.count() == 0 and offline.platform.count() == 0

@@ -255,8 +255,8 @@ wheels = [
 
 [[package]]
 name = "finplan-contracts"
-version = "1.9.0"
-source = { path = "vendor/finplan-contracts/finplan_contracts-1.9.0-py3-none-any.whl" }
+version = "1.10.0"
+source = { path = "vendor/finplan-contracts/finplan_contracts-1.10.0-py3-none-any.whl" }
 dependencies = [
     { name = "jsonschema" },
     { name = "python-ulid" },
@@ -265,7 +265,7 @@ dependencies = [
     { name = "rfc8785" },
 ]
 wheels = [
-    { filename = "finplan_contracts-1.9.0-py3-none-any.whl", hash = "sha256:94d3154f8b965cfcf44106c5f2aba15c0622e28cf575e92f325d34b020036911" },
+    { filename = "finplan_contracts-1.10.0-py3-none-any.whl", hash = "sha256:b5e930a06cc6a4b58a62f60f97494059acd303fed028fce6d93bb30c986bc466" },
 ]
 
 [package.metadata]
@@ -300,7 +300,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.40" },
-    { name = "finplan-contracts", path = "vendor/finplan-contracts/finplan_contracts-1.9.0-py3-none-any.whl" },
+    { name = "finplan-contracts", path = "vendor/finplan-contracts/finplan_contracts-1.10.0-py3-none-any.whl" },
     { name = "pyjwt", extras = ["crypto"], specifier = "==2.15.1" },
 ]
 
