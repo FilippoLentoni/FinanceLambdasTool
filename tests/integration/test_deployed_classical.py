@@ -49,3 +49,17 @@ def test_classical_input_is_strict_and_does_not_accept_ppo():
     doc=invoke('recommend_classical_portfolio',{'algorithm':'ppo'})
     validate_result('recommend_classical_portfolio',doc)
     assert is_error(doc) and doc['code']=='VALIDATION_FAILED',doc
+
+
+def test_financial_news_context_keeps_validated_public_citations():
+    from finplan_tools.tools.classical import _validate_public_citation
+    doc=call('get_etf_research_inputs',{'symbols':['VOO','GOOGL']})
+    assert doc['symbols']==['VOO','GOOGL']
+    assert {'features','models','provenance','limitations','decision_at'} <= set(doc)
+    # News availability may expire or collection may have stopped. Schema and
+    # citation safety remain testable without promising permanently fresh news.
+    for row in doc['models'].get('llm',{}).get('context',[]):
+        _validate_public_citation(row['url'])
+        assert isinstance(row.get('title'),str)
+    assert doc['models']['ppo']['eligible'] is False
+    assert doc['models']['llm']['trading_policy_eligible'] is False
