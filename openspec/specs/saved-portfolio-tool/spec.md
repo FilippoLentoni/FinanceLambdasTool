@@ -6,11 +6,11 @@ Provide complete policy recommendations using the saved paper portfolio without 
 ## Requirements
 
 ### Requirement: Saved portfolio tool request
-The recommend_portfolio MCP tool SHALL accept an empty request and forward it unchanged to the same-environment FinanceModel strategy service to resolve the saved paper portfolio and approved market snapshot. Existing explicit-state requests SHALL remain supported.
+The generate_portfolio_recommendation_ppo MCP tool SHALL accept a request naming only `instruments` and forward it unchanged to the same-environment FinanceModel strategy service to resolve the saved paper portfolio and approved market snapshot. Existing explicit-state requests SHALL remain supported.
 
 #### Scenario: Empty request
-- **WHEN** an authenticated caller invokes recommend_portfolio with {} against a compatible producer
-- **THEN** the adapter forwards {} once without initializing a portfolio or submitting jobs
+- **WHEN** an authenticated caller invokes generate_portfolio_recommendation_ppo with only instruments against a compatible producer
+- **THEN** the adapter forwards that request once without initializing a portfolio or submitting jobs
 
 ### Requirement: Complete producer recommendation forwarding
 The tool SHALL return validated complete producer allocation, cash, share-delta, saved-state and provenance evidence. It SHALL retain read-only permissions and reject incompatible producer releases before invoking inference.

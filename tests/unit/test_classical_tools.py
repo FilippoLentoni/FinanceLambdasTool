@@ -24,7 +24,7 @@ AID='ca_'+'1'*32
 
 
 def evidence(kind='recommendation'):
-    tool = {'recommendation':'recommend-classical-portfolio','explanation':'explain-classical-recommendation','comparison':'compare-classical-plans','performance':'evaluate-classical-performance','research':'research-portfolio-models','market_events':'research-market-events','research_run':'run-portfolio-research','feedback':'submit-portfolio-feedback'}[kind]
+    tool = {'recommendation':'generate-portfolio-recommendation-min-variance','cvar':'generate-portfolio-recommendation-cvar','explanation':'explain-classical-recommendation','comparison':'compare-classical-plans','performance':'evaluate-classical-performance','research':'research-portfolio-models','market_events':'research-market-events','research_run':'run-portfolio-research','feedback':'submit-portfolio-feedback'}[kind]
     path=contracts_root()/f'fixtures/tools/{tool}-response/valid/synthetic.json'
     return json.loads(path.read_text())
 
@@ -46,14 +46,20 @@ def wire(offline, client):
     offline.runtime.jobs=lambda timeout:JobClient(offline.jobs,timeout=timeout,classical_client=backend(client))
 
 
+MV='generate_portfolio_recommendation_min_variance'
+CVAR='generate_portfolio_recommendation_cvar'
+UNIVERSE=['SYNTH','VOO']
+
+
 def test_classical_call_preserves_math_evidence_and_passes_identity_headers(offline,invoke):
     client=Client()
     wire(offline,client)
-    request={'algorithm':'min_variance','settings':{'lookback_days':60}}
-    assert invoke(offline,'recommend_classical_portfolio',request)==client.document
+    request={'instruments':UNIVERSE,'settings':{'lookback_days':60}}
+    assert invoke(offline,MV,request)==client.document
     payload=json.loads(client.calls[0]['Payload'])
-    assert payload['operation']=='recommend_classical_portfolio'
+    assert payload['operation']==MV
     assert payload['environment']=='beta' and payload['request']==request
+    assert payload['instruments']==UNIVERSE and 'algorithm' not in payload['request']
     assert payload['headers']['X-Finplan-Contract-Version']==contract_version()
     assert json.loads(payload['headers']['X-Finplan-Caller'])['channel']=='direct_test'
     assert offline.jobs.count()==0 and offline.platform.count()==0
@@ -63,26 +69,30 @@ def test_classical_call_preserves_math_evidence_and_passes_identity_headers(offl
 def test_bad_reference_cannot_invoke(arn):
     client=Client()
     with pytest.raises(ToolError):
-        backend(client,arn).call('recommend_classical_portfolio',{},CallMeta('corr-test-0001','1.4.0'))
+        backend(client,arn).call(MV,{},CallMeta('corr-test-0001','1.4.0'))
     assert not client.calls
 
 
 def test_unknown_operation_cannot_invoke():
     client=Client()
     with pytest.raises(ToolError):
-        backend(client).call('recommend_portfolio',{},CallMeta('corr-test-0001','1.4.0'))
+        backend(client).call('recommend_classical_portfolio',{},CallMeta('corr-test-0001','1.4.0'))
     assert not client.calls
 
 
 @pytest.mark.parametrize('document',[
-    {'algorithm':'ppo'},
-    {'settings':{'lookback_days':900}},
-    {'output_uri':'s3:'+'//no-bucket/path'},
-    {'as_of':'2026-01-09'},
+    {},
+    {'instruments':[]},
+    {'instruments':['VOO','VOO']},
+    {'instruments':UNIVERSE,'algorithm':'cvar'},
+    {'instruments':UNIVERSE,'settings':{'cvar_alpha':0.95}},
+    {'instruments':UNIVERSE,'settings':{'lookback_days':900}},
+    {'instruments':UNIVERSE,'output_uri':'s3:'+'//no-bucket/path'},
+    {'instruments':UNIVERSE,'as_of':'2026-01-09'},
 ])
 def test_invalid_input_refused_before_producer(offline,invoke,document):
     client=Client();wire(offline,client)
-    response=invoke(offline,'recommend_classical_portfolio',document)
+    response=invoke(offline,MV,document)
     assert response['code']=='VALIDATION_FAILED'
     assert not client.calls
 
@@ -104,17 +114,43 @@ def test_producer_errors_keep_retryability(offline,invoke):
 def test_reference_mismatch_is_not_published(offline,invoke):
     doc=evidence();doc['analysis_ref']['artifact_id']='ca_'+'2'*32
     client=Client(doc);wire(offline,client)
-    response=invoke(offline,'recommend_classical_portfolio',{})
+    response=invoke(offline,MV,{'instruments':UNIVERSE})
     assert response['code']=='INTERNAL'
 
 
 def test_old_producer_is_not_called(offline,invoke):
-    manifest=offline.runtime.manifest('financemodel');manifest['contract_version']='1.3.0'
+    manifest=offline.runtime.manifest('financemodel');manifest['contract_version']='1.13.1'
     offline.set_param('financemodel','release','manifest',manifest)
     client=Client();wire(offline,client)
-    response=invoke(offline,'recommend_classical_portfolio',{})
+    response=invoke(offline,MV,{'instruments':UNIVERSE})
     assert response['code']=='DEPENDENCY_UNAVAILABLE'
     assert not client.calls
+
+
+def test_cvar_tool_fixes_the_algorithm_by_operation(offline,invoke):
+    client=Client(evidence('cvar'));wire(offline,client)
+    request={'instruments':UNIVERSE,'settings':{'cvar_alpha':0.95}}
+    assert invoke(offline,CVAR,request)==client.document
+    payload=json.loads(client.calls[0]['Payload'])
+    assert payload['operation']==CVAR and payload['request']==request and payload['instruments']==UNIVERSE
+
+
+def test_weights_outside_the_requested_universe_are_refused(offline,invoke):
+    client=Client();wire(offline,client)
+    response=invoke(offline,MV,{'instruments':['VOO']})
+    assert response['code']=='INTERNAL' and len(client.calls)==1
+
+
+def test_recommendation_of_another_model_is_refused(offline,invoke):
+    client=Client();wire(offline,client)
+    response=invoke(offline,CVAR,{'instruments':UNIVERSE})
+    assert response['code']=='INTERNAL'
+
+
+def test_removed_tools_are_not_in_the_catalog():
+    from finplan_tools.core.registry import CATALOG
+    assert not {'recommend_portfolio','recommend_classical_portfolio'} & set(CATALOG)
+    assert {MV,CVAR,'generate_portfolio_recommendation_ppo'} <= set(CATALOG)
 
 
 def test_ci_paid_run_rejected_before_producer(offline,invoke):

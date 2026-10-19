@@ -1,5 +1,6 @@
 {
   "response_max_bytes": 65536,
+  "request_max_bytes": 4194304,
   "per_call_max_fraction": 0.2,
   "max_estimated_usd_per_call": {
     "platform_infra": 0,

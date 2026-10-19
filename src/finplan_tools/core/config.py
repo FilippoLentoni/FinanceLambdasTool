@@ -37,6 +37,10 @@ BUDGET_CATEGORIES = ("platform_infra", "cpu_research", "bedrock_explanations", "
 
 DEFAULT_TOOL_LIMITS: dict[str, Any] = {
     "response_max_bytes": 65536,
+    # Largest tool request (JSON arguments). 4 MiB fits under the 6 MB AgentCore Gateway tool-call
+    # payload and Lambda synchronous invocation limits; record_agent_activity archives full tool
+    # inputs/outputs up to this size (FinancialPlanning chunks large activity events).
+    "request_max_bytes": 4194304,
     "per_call_max_fraction": 0.2,
     "max_estimated_usd_per_call": {
         "platform_infra": 0,
@@ -65,6 +69,9 @@ def tool_limits_problems(doc: Any) -> list[str]:
             out.append(f"{key} must be a {'integer' if integer else 'number'} >= {lo:g}")
 
     num("response_max_bytes", lo=1024, integer=True)
+    num("request_max_bytes", lo=1024, integer=True)
+    if isinstance(doc.get("request_max_bytes"), int) and doc["request_max_bytes"] > 6000000:
+        out.append("request_max_bytes must not exceed 6000000 (Gateway tool-call and Lambda payload limits)")
     num("page_size_default", lo=1, integer=True)
     num("page_size_max", lo=1, integer=True)
     num("summary_top_n", lo=1, integer=True)
@@ -113,6 +120,7 @@ class ToolLimits:
     summary_top_n: int
     reference_ttl_seconds: int
     timeouts_seconds: dict[str, int]
+    request_max_bytes: int = DEFAULT_TOOL_LIMITS["request_max_bytes"]
     raw: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
 
     @classmethod
@@ -134,6 +142,7 @@ class ToolLimits:
             summary_top_n=int(merged["summary_top_n"]),
             reference_ttl_seconds=int(merged["reference_ttl_seconds"]),
             timeouts_seconds={k: int(v) for k, v in merged["timeouts_seconds"].items()},
+            request_max_bytes=int(merged["request_max_bytes"]),
             raw=merged,
         )
 

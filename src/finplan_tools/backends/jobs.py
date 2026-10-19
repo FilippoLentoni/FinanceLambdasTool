@@ -49,6 +49,7 @@ class JobClient:
         return call(self.transport, self.PRODUCER, "PUT", "v1/production-strategy", meta, body=dict(body), timeout=self.timeout)
 
     def recommend_portfolio(self, body, meta):
+        """FinanceModel's frozen PPO serving function (``generate_portfolio_recommendation_ppo``)."""
         from ..core.errors import ToolError
         if self.strategy_client is None:
             raise ToolError.dependency_unavailable("the selected-strategy service is unavailable")

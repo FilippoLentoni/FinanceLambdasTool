@@ -81,6 +81,9 @@ def tool_logical(tool: str) -> str:
     # Keep physical Lambda names within AWS's 64-character limit in every stage.
     if tool == "explain_classical_recommendation":
         return "explain-classical-plan"
+    if tool.startswith("generate_portfolio_recommendation_"):
+        # finplan-gamma-financelambdastool-gen-portfolio-rec-min-variance is 63 characters.
+        return "gen-portfolio-rec-" + tool.removeprefix("generate_portfolio_recommendation_").replace("_", "-")
     return tool.replace("_", "-")
 
 

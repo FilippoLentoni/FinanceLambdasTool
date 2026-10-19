@@ -5,12 +5,20 @@ Exposes the selected portfolio strategy to authenticated agents through a bounde
 
 ## Requirements
 
-### Requirement: Strategy-neutral read tool
-The Gateway SHALL offer recommend_portfolio as a read-only tool using the producer's request and response contracts. It MUST call the selected strategy without exposing training, selection changes or order execution.
+### Requirement: PPO recommendation tool over an explicit universe
+The Gateway SHALL offer generate_portfolio_recommendation_ppo as a read-only tool using the producer's request and response contracts. Its request MUST name the `instruments` universe; the adapter SHALL forward it unchanged to the FinanceModel serving function, which selects the frozen PPO policy trained on exactly that universe. It MUST NOT expose training, selection changes or order execution, and recommend_portfolio SHALL NOT be offered.
 
-#### Scenario: Selected algorithm changes
-- **WHEN** the producer pins another supported algorithm
-- **THEN** the unchanged MCP tool returns that algorithm's recommendation
+#### Scenario: Universe with a frozen policy
+- **WHEN** the tool is called with the instruments of a frozen PPO policy
+- **THEN** the MCP response returns that policy's targets only for those instruments
+
+#### Scenario: Universe without a policy
+- **WHEN** no frozen PPO policy was trained on the requested instruments
+- **THEN** the producer's typed error is returned and no other universe's weights are served
+
+#### Scenario: Response outside the universe
+- **WHEN** the producer returns a target weight for an instrument not requested
+- **THEN** the adapter fails the call instead of returning it
 
 ### Requirement: Five-minute target and compatible deadlines
 The recommendation target SHALL permit up to 300 seconds. Its backend and caller deadlines MUST fit the request path. The computation MUST NOT depend on the existing 29-second job API integration.

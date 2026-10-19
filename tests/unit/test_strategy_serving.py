@@ -14,6 +14,8 @@ from infra.stacks.policies import role_class_policy
 
 ACCOUNT = '1' * 12
 ARN = f'arn:aws:lambda:us-east-2:{ACCOUNT}:function:finplan-beta-financemodel-job-api-handler-inference'
+PPO = 'generate_portfolio_recommendation_ppo'
+EIGHT = ['AAPL', 'AMZN', 'GOOGL', 'META', 'MSFT', 'NVDA', 'TSLA', 'VOO']
 
 
 class Client:
@@ -41,6 +43,14 @@ def test_direct_invocation_preserves_environment_identity_and_correlation():
     assert call['FunctionName'] == ARN and call['InvocationType'] == 'RequestResponse'
     payload = json.loads(call['Payload'])
     assert payload['environment'] == 'beta' and payload['headers'] == meta.headers()
+    assert 'instruments' not in payload
+
+
+def test_instruments_are_forwarded_inside_the_request_and_at_the_top_level():
+    client = Client()
+    backend(client).recommend({'instruments': EIGHT}, CallMeta('corr-test-0001', '1.14.0'))
+    payload = json.loads(client.calls[0]['Payload'])
+    assert payload['request'] == {'instruments': EIGHT} and payload['instruments'] == EIGHT
 
 
 @pytest.mark.parametrize('arn', [None, ARN.replace('beta','prod'), ARN.replace(ACCOUNT,'9' * 12), ARN+':other', 'https://endpoint.invalid'])
@@ -112,10 +122,10 @@ def test_reader_can_invoke_only_own_strategy_service_and_cannot_train():
     assert not allowed('ssm:PutParameter', f'arn:aws:ssm:us-east-2:{ACCOUNT}:parameter/finplan/beta/financemodel/config/advisory-policy')
 
 
-def test_empty_request_flows_through_tool_pipeline_and_preserves_share_cash_evidence(offline, invoke):
+def test_instruments_only_request_flows_through_tool_pipeline_and_preserves_share_cash_evidence(offline, invoke):
     from finplan_contracts.schemas import contracts_root
     from finplan_tools.backends.jobs import JobClient
-    fixture_path=next((contracts_root()/'fixtures/tools/recommend-portfolio-response/valid').glob('*saved*.json'))
+    fixture_path=next((contracts_root()/'fixtures/tools/generate-portfolio-recommendation-ppo-response/valid').glob('*saved*.json'))
     response=json.loads(fixture_path.read_text())
     # Consistent indicative sell: 20 shares at 450 to 10 shares, with proceeds left in cash.
     rec=response['recommendation']
@@ -124,9 +134,9 @@ def test_empty_request_flows_through_tool_pipeline_and_preserves_share_cash_evid
     rec['decisions'][0].update(action='sell',delta_weight=-.45,indicative_notional=-4500.)
     client=Client(json.dumps(response).encode())
     offline.runtime.jobs=lambda timeout:JobClient(offline.jobs,timeout=timeout,strategy_client=backend(client))
-    got=invoke(offline,'recommend_portfolio',{})
+    got=invoke(offline,PPO,{'instruments':EIGHT})
     assert got==response,got
-    assert len(client.calls)==1 and json.loads(client.calls[0]['Payload'])['request']=={}
+    assert len(client.calls)==1 and json.loads(client.calls[0]['Payload'])['request']=={'instruments':EIGHT}
     assert got['recommendation']['decisions'][0]['delta_quantity']==-10
     assert got['recommendation']['cash_weight']==.55
     assert got['recommendation']['portfolio_state']['source']=='saved_paper'
@@ -136,31 +146,60 @@ def test_empty_request_flows_through_tool_pipeline_and_preserves_share_cash_evid
 def test_default_recommendation_rejects_old_model_before_lambda_call(offline, invoke):
     from finplan_tools.backends.jobs import JobClient
     from finplan_tools_testing.runtime import release_manifest
-    release=release_manifest('financemodel','beta');release['contract_version']='1.2.0'
+    release=release_manifest('financemodel','beta');release['contract_version']='1.13.1'
     offline.set_param('financemodel','release','manifest',release)
     client=Client()
     offline.runtime.jobs=lambda timeout:JobClient(offline.jobs,timeout=timeout,strategy_client=backend(client))
-    got=invoke(offline,'recommend_portfolio',{})
-    assert got['code']=='DEPENDENCY_UNAVAILABLE' and got['details']['required_contract_version']=='1.3.0'
+    got=invoke(offline,PPO,{'instruments':EIGHT})
+    assert got['code']=='DEPENDENCY_UNAVAILABLE' and got['details']['required_contract_version']=='1.14.0'
     assert not client.calls and offline.jobs.count()==0 and offline.platform.count()==0
 
 
 def test_default_request_schema_supports_saved_book_without_mixing_actual_state():
     from finplan_tools.core.contracts import validate_document
-    assert validate_document({},'tools/recommend-portfolio-invocation-request').valid
-    assert validate_document({'portfolio_id':'pf_01KDVDNAZ83BAMMYCEGWF33DPM'},'tools/recommend-portfolio-invocation-request').valid
-    assert not validate_document({'as_of':'2026-10-08'},'tools/recommend-portfolio-invocation-request').valid
-    assert not validate_document({'holdings':{}},'tools/recommend-portfolio-invocation-request').valid
+    schema = 'tools/generate-portfolio-recommendation-ppo-request'
+    assert validate_document({'instruments':EIGHT},schema).valid
+    assert validate_document({'instruments':EIGHT,'portfolio_id':'pf_01KDVDNAZ83BAMMYCEGWF33DPM'},schema).valid
+    assert not validate_document({},schema).valid
+    assert not validate_document({'instruments':EIGHT,'as_of':'2026-10-08'},schema).valid
+    assert not validate_document({'instruments':EIGHT,'holdings':{}},schema).valid
+
+
+def test_missing_instruments_are_refused_before_the_serving_function(offline, invoke):
+    from finplan_tools.backends.jobs import JobClient
+    client = Client()
+    offline.runtime.jobs = lambda timeout: JobClient(offline.jobs, timeout=timeout, strategy_client=backend(client))
+    assert invoke(offline, PPO, {})['code'] == 'VALIDATION_FAILED'
+    assert not client.calls
+
+
+def test_policy_of_another_universe_is_refused(offline, invoke):
+    from finplan_contracts.schemas import contracts_root
+    from finplan_tools.backends.jobs import JobClient
+    response = json.loads((contracts_root() / 'fixtures/tools/generate-portfolio-recommendation-ppo-response/valid/saved-paper.json').read_text())
+    client = Client(json.dumps(response).encode())
+    offline.runtime.jobs = lambda timeout: JobClient(offline.jobs, timeout=timeout, strategy_client=backend(client))
+    got = invoke(offline, PPO, {'instruments': ['AAPL', 'NVDA']})
+    assert got['code'] == 'INTERNAL' and len(client.calls) == 1
+
+
+def test_no_policy_error_for_the_universe_is_passed_through(offline, invoke):
+    from finplan_tools.backends.jobs import JobClient
+    envelope = {'code': 'NOT_FOUND', 'message': 'no frozen PPO policy was trained on this universe', 'retryable': False, 'details': {}, 'correlation_id': 'corr-test-0001', 'contract_version': '1.14.0'}
+    client = Client(json.dumps(envelope).encode())
+    offline.runtime.jobs = lambda timeout: JobClient(offline.jobs, timeout=timeout, strategy_client=backend(client))
+    got = invoke(offline, PPO, {'instruments': ['AAPL', 'NVDA']})
+    assert got['code'] == 'NOT_FOUND' and got['retryable'] is False
 
 
 def test_current_news_timing_response_passes_through_the_read_only_tool_pipeline(offline, invoke):
     """Current-news metadata must survive output validation while retaining legacy timing."""
     from finplan_contracts.schemas import contracts_root
     from finplan_tools.backends.jobs import JobClient
-    response = json.loads((contracts_root() / 'fixtures/tools/recommend-portfolio-response/valid/current-news-timing.json').read_text())
+    response = json.loads((contracts_root() / 'fixtures/tools/generate-portfolio-recommendation-ppo-response/valid/current-news-timing.json').read_text())
     client = Client(json.dumps(response).encode())
     offline.runtime.jobs = lambda timeout: JobClient(offline.jobs, timeout=timeout, strategy_client=backend(client))
-    result = invoke(offline, 'recommend_portfolio', {})
+    result = invoke(offline, PPO, {'instruments': EIGHT})
     assert result == response, result
     assert result['recommendation']['decision_timing'] == 'after_completed_close_for_next_session'
     assert result['recommendation']['news_timing'] == 'eligible_news_at_decision_with_completed_prices'

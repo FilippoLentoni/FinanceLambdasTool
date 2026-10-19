@@ -17,7 +17,7 @@ class ClassicalLambdaClient:
         self.environment, self.region, self.account = environment, region, account
 
     def call(self, operation, body, meta):
-        allowed = {"get_etf_research_inputs", "get_crypto_experiment", "recommend_crypto_portfolio", "list_crypto_history", "discover_research_data", "explain_portfolio_decision", "compare_portfolio_decisions", "evaluate_portfolio_decision", "recommend_classical_portfolio", "explain_classical_recommendation", "compare_classical_plans", "evaluate_classical_performance", "get_classical_analysis", "list_classical_analyses", "research_portfolio_models", "research_market_events", "run_portfolio_research", "run_recursive_improvement", "submit_portfolio_feedback"}
+        allowed = {"get_etf_research_inputs", "get_crypto_experiment", "recommend_crypto_portfolio", "list_crypto_history", "discover_research_data", "explain_portfolio_decision", "compare_portfolio_decisions", "evaluate_portfolio_decision", "generate_portfolio_recommendation_min_variance", "generate_portfolio_recommendation_cvar", "explain_classical_recommendation", "compare_classical_plans", "evaluate_classical_performance", "get_classical_analysis", "list_classical_analyses", "research_portfolio_models", "research_market_events", "run_portfolio_research", "run_recursive_improvement", "submit_portfolio_feedback"}
         if operation not in allowed:
             raise ToolError.validation("unknown classical operation")
         ref = self.references.get("financemodel", "api", "classical-function-ref")
@@ -25,6 +25,10 @@ class ClassicalLambdaClient:
         if not ref or not re.fullmatch(r"[0-9]{12}", self.account) or not re.fullmatch(pattern, ref):
             raise ToolError.dependency_unavailable("no traditional optimization service is released in this environment")
         payload = {"environment": self.environment, "operation": operation, "request": dict(body), "headers": meta.headers()}
+        if "instruments" in body:
+            # The explicit universe of generate_portfolio_recommendation_*: inside ``request`` (the
+            # validated tool request) and, unchanged, at the top level of the invocation payload.
+            payload["instruments"] = list(body["instruments"])
         try:
             response = self.client.invoke(FunctionName=ref, InvocationType="RequestResponse", Payload=json.dumps(payload, allow_nan=False).encode())
         except Exception as exc:  # noqa: BLE001 - normalize SDK transport failures

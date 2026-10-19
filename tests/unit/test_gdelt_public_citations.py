@@ -33,7 +33,7 @@ def test_actual_shaped_numeric_citations_survive_the_full_tool_pipeline_unchange
     document['recommendation'].setdefault('diagnostics', {})['news_evidence'] = news(version)
     original = deepcopy(document)
     wire(offline, Client(document))
-    response = invoke(offline, 'recommend_classical_portfolio', {'algorithm': 'min_variance'})
+    response = invoke(offline, 'generate_portfolio_recommendation_min_variance', {'instruments': ['SYNTH']})
     assert response == original
     assert not response_leaks(response)
     assert document == original
@@ -65,7 +65,7 @@ def test_known_lineage_does_not_exempt_arbitrary_or_private_urls(offline, invoke
     proof['provenance']['lineage']['url'] = location
     document['recommendation'].setdefault('diagnostics', {})['news_evidence'] = proof
     wire(offline, Client(document))
-    response = invoke(offline, 'recommend_classical_portfolio', {'algorithm': 'min_variance'})
+    response = invoke(offline, 'generate_portfolio_recommendation_min_variance', {'instruments': ['SYNTH']})
     assert response['code'] == 'INTERNAL'
     assert location not in json.dumps(response)
 

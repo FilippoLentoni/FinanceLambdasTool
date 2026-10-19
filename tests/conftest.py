@@ -23,6 +23,16 @@ if not deployed_suite_mode():
 from finplan_tools_testing.runtime import Offline, offline_runtime  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def no_retry_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Producer retry backoff (``backends.platform``) records its delays instead of sleeping."""
+    from finplan_tools.backends import platform
+
+    delays: list[float] = []
+    monkeypatch.setattr(platform, "_sleep", delays.append)
+    return delays
+
+
 @pytest.fixture
 def offline_factory() -> Callable[..., Offline]:
     return offline_runtime

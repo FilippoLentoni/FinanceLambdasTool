@@ -222,6 +222,19 @@ def _envelope(err: ToolError, cid: str, synthetic: bool) -> dict[str, Any]:
     return env
 
 
+_LOGGED_DETAILS = ("pointer", "reason", "producer", "producer_status", "field", "attempts", "limit_bytes", "required_contract_version")
+
+
+def _log_tool_error(err: ToolError, cid: str, tool: str) -> None:
+    """Log why a call failed: code, our message and selected non-sensitive details (never request
+    values). INTERNAL also logs the raising location, so no internal error is ever silent."""
+    details = {k: err.details[k] for k in _LOGGED_DETAILS if k in err.details}
+    if err.code == INTERNAL:
+        log.error("tool error %s (correlation_id=%s tool=%s): %s %s", err.code, cid, tool, err.message, details, exc_info=err)
+    else:
+        log.info("tool error %s (correlation_id=%s tool=%s): %s %s", err.code, cid, tool, err.message, details)
+
+
 def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[str, Any]:
     """Run ``spec`` for one Lambda invocation; returns the response or the error envelope."""
     started = time.monotonic()
@@ -243,6 +256,10 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
         if not isinstance(request, Mapping):
             raise ToolError.validation("the tool request must be a JSON object", pointer="")
         request = dict(request)
+        size = response_size(request)
+        max_request = runtime.limits().request_max_bytes
+        if size > max_request:
+            raise ToolError.validation(f"the tool request is {size} bytes, above the {max_request}-byte request limit", pointer="", reason="request_too_large", limit_bytes=max_request)
         if spec.name == "record_agent_activity" and "payload" in request:
             # Archive callers may include transport diagnostics inside an evidence payload.
             # Redact these before schema validation as well as before producer transport.
@@ -260,7 +277,14 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
         # tool-only fields (not in the pinned request schema) are checked by the tool, never forwarded
         tool_fields = {k: request.pop(k) for k in spec.tool_only_fields if k in request}
         # 4. input schema (pinned validators, incl. identifier formats and semantic checks)
-        result = validate_document(request, spec.input_schema)
+        if spec.name == "record_agent_activity" and isinstance(request.get("payload"), Mapping):
+            # The archived payload is evidence (prompts, tool schemas, JSON pointers, regexes), not a
+            # caller-chosen location: the contract's path-like-value check would refuse ordinary
+            # text such as "/holdings/weights" or a backslash. Credentials and private locations
+            # are already redacted by ``sanitize``; the rest of the request is fully checked.
+            result = validate_document({**request, "payload": {}}, spec.input_schema)
+        else:
+            result = validate_document(request, spec.input_schema)
         if not result.valid:
             raise from_validation(result)
         if spec.name == "record_agent_activity":
@@ -313,6 +337,7 @@ def execute(spec: ToolSpec, event: Any, context: Any, runtime: Runtime) -> dict[
         return response
     except ToolError as err:
         outcome, retryable = err.code, err.retryable
+        _log_tool_error(err, cid, spec.name)
         response = _envelope(err, cid, synthetic)
         return response
     except Exception:  # noqa: BLE001 - never leak a trace: full trace only in the log

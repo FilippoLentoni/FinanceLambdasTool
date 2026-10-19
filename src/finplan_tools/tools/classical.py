@@ -11,13 +11,19 @@ from ..core.artifacts import response_leaks
 from ..core.bounds import response_size
 from ..core.errors import BUDGET_EXCEEDED, FORBIDDEN, PRECONDITION_FAILED, ToolError
 from ..core.registry import register_tool
-from ._common import producer_doc
+from ._common import producer_doc, require_requested_universe
 
 
 def _paid(request):
     return request.get("dry_run") is False
 
 
+#: contracts 1.14.0: the classical recommendation tools and the model each one runs (the
+#: algorithm is fixed by the tool; FinanceModel derives it from the operation name).
+CLASSICAL_RECOMMENDATION_TOOLS = {
+    "generate_portfolio_recommendation_min_variance": "min_variance",
+    "generate_portfolio_recommendation_cvar": "cvar",
+}
 PAID_RESEARCH_TOOLS = frozenset({"run_portfolio_research", "run_recursive_improvement"})
 _MAX_CITATIONS = 50
 _MAX_CITATION_EVIDENCE = 100
@@ -150,6 +156,8 @@ def _invoke(ctx, request):
             raise ToolError(BUDGET_EXCEEDED, "weekly research estimate exceeds the USD 0.50 hard cap", limit_usd=.5)
     doc = producer_doc(ctx.jobs.classical(operation, down, ctx.meta), "classical analysis")
     _validate_reference(doc)
+    if operation in CLASSICAL_RECOMMENDATION_TOOLS:
+        require_requested_universe(doc, request["instruments"], strategy=CLASSICAL_RECOMMENDATION_TOOLS[operation])
     if operation == "get_classical_analysis" and doc.get("analysis_id") != request["analysis_id"]:
         raise ToolError.internal("the producer returned another analysis than requested")
     return _research_view(doc, ctx.limits.response_max_bytes)
@@ -159,7 +167,8 @@ _DESCRIPTIONS = {
     "explain_portfolio_decision": "Explain an immutable PPO or traditional decision_id using its frozen issued inputs. Traditional decisions use objective counterfactuals/Shapley; PPO reports policy diagnostics and truthful attribution limits. Does not rerun or accept a new recommendation.",
     "compare_portfolio_decisions": "Compare previous_decision_id and current_decision_id from durable recommendation history, including input snapshots, holdings revisions, targets and strategy identity. Traditional comparable decisions support grouped Shapley; PPO or cross-family comparisons expose descriptive changes and limitations.",
     "evaluate_portfolio_decision": "Evaluate a stored decision against later approved observed prices, saved paper revisions and simulated fills. Separate daily attribution from the declared strategy objective and horizon; preserve frozen sequential-policy replay, same-cost controls, partial windows and unavailable evidence. A short loss or one realized path does not establish policy failure or optimality. Save discrepancy evidence for recurring review.",
-    "recommend_classical_portfolio": "Generate and save a traditional portfolio optimization recommendation using min_variance (default), mean_variance or cvar. Uses the saved paper holdings and latest approved completed market snapshot unless explicit identifiers/date are supplied. Returns proposed share changes, input provenance and immutable analysis_id; no trades or holdings updates.",
+    "generate_portfolio_recommendation_min_variance": "Generate and save a portfolio recommendation with the classical minimum-variance model (FinanceModel min_variance optimizer) over exactly the requested instruments (required, 1-100 symbols; each must be in the market snapshot). Uses the saved paper holdings and latest approved completed market snapshot unless explicit snapshot/as_of/holdings are supplied. Returns target weights only for those instruments, proposed share changes, input provenance and immutable analysis_id; no trades or holdings updates.",
+    "generate_portfolio_recommendation_cvar": "Generate and save a portfolio recommendation with the classical CVaR model (FinanceModel conditional value-at-risk optimizer, optional cvar_alpha) over exactly the requested instruments (required, 1-100 symbols; each must be in the market snapshot). Uses the saved paper holdings and latest approved completed market snapshot unless explicit snapshot/as_of/holdings are supplied. Returns target weights only for those instruments, proposed share changes, input provenance and immutable analysis_id; no trades or holdings updates.",
     "explain_classical_recommendation": "Explain a stored classical recommendation by analysis_id, optionally for one instrument. Uses the frozen optimization inputs, objective versus a keep-holding counterfactual and grouped Shapley attribution. Returns immutable reproducible evidence; attribution describes this model, not market causality.",
     "compare_classical_plans": "Compare two immutable traditional recommendation analyses by previous_analysis_id/current_analysis_id. Attribute changes in allocations to grouped market, holdings and model-setting inputs with Shapley, retaining both snapshots and model provenance.",
     "evaluate_classical_performance": "Evaluate a stored recommendation against an approved observed snapshot/end date. Distinguishes saved paper holdings, simulated recommended allocation and broker actuals; reports expected-versus-observed gaps only where an expectation exists. Saves metric/decomposition evidence and explicitly reports missing actuals or forecast calibration.",

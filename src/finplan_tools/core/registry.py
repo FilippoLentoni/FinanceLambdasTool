@@ -71,9 +71,6 @@ class CatalogEntry:
 
     @property
     def input_schema(self) -> str:
-        if self.name == "recommend_portfolio":
-            # The original explicit-state request remains immutable for 1.2 consumers.
-            return "tools/recommend-portfolio-invocation-request"
         return _schema_name(self.name, "request")
 
     @property
@@ -107,8 +104,10 @@ CATALOG: dict[str, CatalogEntry] = {
         CatalogEntry("get_publication", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
         CatalogEntry("list_publications", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
         CatalogEntry("list_executions", False, "reader", (PRODUCER_PLATFORM,), "read", min_producer_contract="1.2.0"),
-        CatalogEntry("recommend_portfolio", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.3.0"),
-        CatalogEntry("recommend_classical_portfolio", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
+        # contracts 1.14.0: one tool per model, each restricted to an explicit ``instruments`` universe.
+        CatalogEntry("generate_portfolio_recommendation_min_variance", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.14.0"),
+        CatalogEntry("generate_portfolio_recommendation_cvar", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.14.0"),
+        CatalogEntry("generate_portfolio_recommendation_ppo", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.14.0"),
         CatalogEntry("explain_classical_recommendation", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
         CatalogEntry("compare_classical_plans", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),
         CatalogEntry("evaluate_classical_performance", False, "reader", (PRODUCER_MODEL,), "recommendation", min_producer_contract="1.4.0"),

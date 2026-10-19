@@ -1,11 +1,16 @@
 # Selected strategy MCP tool
 
-`recommend_portfolio` is a read-only recommendation tool pinned to contracts 1.5.0.
+`generate_portfolio_recommendation_ppo` is a read-only recommendation tool running FinanceModel's
+frozen PPO policy (contracts 1.14.0; it replaced `recommend_portfolio`, with no alias). Its schemas are
+`finance/v1/tools/generate-portfolio-recommendation-ppo-request` / `-response`.
 
-Its input schema is `finance/v1/tools/recommend-portfolio-invocation-request`; the original 1.2
-explicit-only request schema remains unchanged.
+`instruments` (1-100 unique symbols) is required: FinanceModel serves the frozen PPO policy trained on
+exactly that universe (for example the 8-stock AAPL, AMZN, GOOGL, META, MSFT, NVDA, TSLA, VOO policy)
+or returns a typed no-policy error; it never answers with another universe's weights. The adapter
+forwards `instruments` inside `request` and, unchanged, at the top level of the strategy Lambda
+payload, and refuses (as `INTERNAL`) a response with a target weight outside the requested universe.
 
-Call it with `{}` to load the saved beta paper portfolio and latest approved completed market
+Call it with only `instruments` to load the saved beta paper portfolio and latest approved completed market
 session automatically. FinanceModel marks the persisted instrument quantities and cash, builds the
 trained state and returns policy targets plus proposed fractional share and value changes. The full
 response includes all instrument targets, cash, saved book identity/revision, price dates and policy/
@@ -14,8 +19,8 @@ data provenance. The tool does not initialize a book or update positions from re
 The existing explicit mode remains supported: supply `input_snapshot_id`, paired `as_of`, and
 complete `holdings` (`weights`, `cash_weight`, `portfolio_value`, `high_watermark`). Alternatively
 `portfolio_id` selects a saved book; it cannot be mixed with explicit holdings. Requests with no
-explicit snapshot use the approved default dataset. The tool gates inference on FinanceModel 1.3.0
-so an older producer cannot silently receive unsupported default requests.
+explicit snapshot use the approved default dataset. The tool gates inference on FinanceModel 1.14.0
+so an older producer cannot silently ignore the requested universe.
 
 The result remains advisory/paper, with indicative fractional quantities at the reference close.
 Rounding, transaction costs and execution price changes can affect executable quantities. There is
@@ -47,6 +52,19 @@ unchanged. A returned checksum identifies that original artifact rather than the
 All deployed adapters save sanitized successful/failed invocation receipts through the Platform
 activity API, excluding credentials and private grants. Explicit archive calls do not recursively
 archive themselves. A failed durable archive is reported rather than presenting an unarchived success.
+Archive writes (receipts and `record_agent_activity`) are idempotent and are retried up to three
+times with exponential backoff and jitter on transport errors, throttling, 502/503/504 and
+API Gateway-generated 5xx envelopes (a throttled or failed Platform Lambda, recognised by a
+gateway request ID instead of the caller's correlation ID). Every tool's reads and idempotent
+writes retry gateway-generated 5xx the same way; one that persists is a retryable
+`DEPENDENCY_UNAVAILABLE`, never a bare `INTERNAL`. Producer-declared throttling still passes
+through once. Every tool error is logged with its code, message and non-sensitive details;
+`INTERNAL` errors also log the raising location.
+Tool requests may be up to `request_max_bytes` (tool-limits, default 4 MiB, at most 6,000,000:
+the AgentCore Gateway tool-call and Lambda synchronous payload limits are 6 MB). The
+`record_agent_activity` `payload` is archived evidence: it is sanitized (credentials, private
+locations, signed URLs) but not refused for path-like text such as JSON pointers or backslashes;
+its other fields keep the full storage-location check.
 Archived validation pointers use a typed `json_pointer` object with `encoding=base64url_utf8_segments`.
 Decode each segment as unpadded base64url UTF-8, join with `/`, and prepend `/` when segments exist;
 zero segments represent the empty pointer. Raw RFC 6901 escapes and empty segments are preserved.

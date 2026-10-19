@@ -24,6 +24,10 @@ class StrategyLambdaClient:
         if not re.fullmatch(r"[0-9]{12}", self.account) or not re.fullmatch(pattern, ref):
             raise ToolError.dependency_unavailable("strategy reference does not name this environment's serving function")
         payload = {"environment": self.environment, "request": dict(body), "headers": meta.headers()}
+        if "instruments" in body:
+            # generate_portfolio_recommendation_ppo: the serving function selects the frozen policy
+            # trained on exactly this universe (also forwarded unchanged inside ``request``).
+            payload["instruments"] = list(body["instruments"])
         try:
             response = self.client.invoke(FunctionName=ref, InvocationType="RequestResponse", Payload=json.dumps(payload, allow_nan=False).encode())
         except Exception as exc:

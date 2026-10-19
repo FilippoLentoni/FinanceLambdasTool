@@ -1,6 +1,6 @@
 # Beta modeling evidence contract consumer
 
-This release pins the exact compatible `finplan-contracts` 1.13.1 wheel produced
+This release pins the exact compatible `finplan-contracts` 1.14.0 wheel produced
 by FinancialPlanning. Portfolio decisions now identify language model, agentic,
 control, reinforcement learning and optimization families honestly. Existing tools
 pass through versioned platform evidence instead of substituting family labels.
@@ -11,11 +11,12 @@ policy; this does not grant a tool, agent or caller automatic acceptance of a us
 portfolio. Tool permissions, budgets, gateway authentication and real-order
 prohibitions remain unchanged.
 
-The additive native-input reference supports isolated hourly crypto experiments
-without inventing an equity snapshot identity. Existing snapshot-backed decisions
-and user confirmation are preserved. Version 1.13.1 tightens the compatible-schema
-proof guard; it does not change the 1.13.0 schemas.
+Version 1.14.0 replaces `recommend_portfolio` and `recommend_classical_portfolio` with
+`generate_portfolio_recommendation_min_variance`, `_cvar` and `_ppo`: one tool per model, each
+requiring an explicit `instruments` universe (see `classical-mcp-tools.md` and
+`selected-strategy-tool.md`). The removed tools have no aliases. Existing snapshot-backed
+decisions and user confirmation are preserved.
 
-Validation includes the prior 801-test unit/contract suite and affected contract,
-pin and infrastructure checks against the final frozen wheel. Pipeline build and
-deployed beta checks are recorded in the central beta-modeling deployment evidence.
+Validation includes the full unit/contract suite, release synth with real Lambda bundles and the
+build gates against the frozen wheel. Pipeline build and deployed beta checks are recorded in the
+central beta-modeling deployment evidence.

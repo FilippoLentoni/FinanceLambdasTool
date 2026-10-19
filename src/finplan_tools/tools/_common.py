@@ -11,7 +11,7 @@ from ..core.contracts import store
 from ..core.errors import ToolError
 from ..core.public_response import public_document
 
-__all__ = ["schema_properties", "project", "iso", "producer_doc"]
+__all__ = ["schema_properties", "project", "iso", "producer_doc", "require_requested_universe"]
 
 
 def _props(schema: Mapping[str, Any]) -> set[str]:
@@ -46,6 +46,24 @@ def producer_doc(value: Any, what: str) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ToolError.internal(f"the producer returned no {what} document")
     return public_document(value)
+
+
+def require_requested_universe(doc: Mapping[str, Any], instruments: Iterable[str], *, strategy: str | None = None) -> None:
+    """Refuse a producer recommendation that targets an instrument outside the requested
+    ``instruments`` (or, when ``strategy`` is given, that another model produced): the
+    ``generate_portfolio_recommendation_*`` tools return weights only for the caller's universe."""
+    rec = doc.get("recommendation")
+    if not isinstance(rec, Mapping):
+        raise ToolError.internal("the producer returned no recommendation")
+    if strategy is not None and rec.get("strategy") != strategy:
+        raise ToolError.internal(f"the producer returned a recommendation of another model than {strategy}")
+    allowed = set(instruments)
+    targets = rec.get("target_weights")
+    if not isinstance(targets, list):
+        raise ToolError.internal("the producer recommendation has no target weights")
+    outside = sorted({str(t.get("instrument_id")) for t in targets if not isinstance(t, Mapping) or t.get("instrument_id") not in allowed})
+    if outside:
+        raise ToolError.internal("the producer recommendation targets instruments outside the requested universe", instruments=outside[:20])
 
 
 def iso(dt: datetime) -> str:
